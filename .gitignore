@@ -1,0 +1,13 @@
+# Obsidian workspace settings (personal layout/window positions)
+.obsidian/workspace.json
+.obsidian/workspace
+
+# Obsidian cache
+.obsidian/workspace-mobile.json
+.obsidian/cache
+
+# Trash
+.trash/
+
+# macOS
+.DS_Store

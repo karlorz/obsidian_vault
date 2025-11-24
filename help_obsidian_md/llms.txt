@@ -1,0 +1,767 @@
+# Obsidian Help Documentation
+
+Obsidian is a powerful knowledge base application that works on top of a local folder of plain text Markdown files. This repository contains the official help documentation for Obsidian, covering everything from basic note-taking to advanced features like plugins, sync, and publishing. The documentation is organized into comprehensive guides that help users understand how to use Obsidian effectively for personal knowledge management, with support for linking notes, customizing the interface, and extending functionality through plugins.
+
+The help site is built using Markdown files that demonstrate Obsidian's own features in action. Each documentation file covers specific aspects of Obsidian, from getting started guides to detailed API references. The documentation includes guides for core features like linking notes with wiki-style double brackets, organizing information with properties and tags, creating visual canvases, and using advanced search operators. It also covers Obsidian's paid services including Sync for multi-device synchronization and Publish for hosting public knowledge bases.
+
+## Installation and Setup
+
+Download and install Obsidian on your platform
+
+The installation process varies by operating system but follows a consistent pattern of downloading the installer and running it.
+
+```bash
+# Windows - Download Universal installer
+# Visit https://obsidian.md/download
+# Run the .exe installer
+
+# macOS - Download Universal DMG
+# Visit https://obsidian.md/download
+# Drag Obsidian.app to Applications folder
+
+# Linux - Install via Snap
+wget https://github.com/obsidianmd/obsidian-releases/releases/download/v1.0.0/obsidian_1.0.0_amd64.snap
+snap install obsidian_*.snap --dangerous --classic
+
+# Or use AppImage
+chmod +x Obsidian-*.AppImage
+./Obsidian-*.AppImage
+
+# Or use Flatpak
+flatpak install flathub md.obsidian.Obsidian
+flatpak run md.obsidian.Obsidian
+```
+
+## Vault Management
+
+Create and manage Obsidian vaults
+
+A vault is a folder on your local file system where Obsidian stores your notes. You can create multiple vaults for different purposes.
+
+```markdown
+<!-- Creating a new vault -->
+1. Launch Obsidian
+2. Click "Create new vault"
+3. Enter vault name: "My Knowledge Base"
+4. Choose location: ~/Documents/ObsidianVaults/
+5. Click "Create"
+
+<!-- Opening an existing folder as a vault -->
+1. Launch Obsidian
+2. Click "Open folder as vault"
+3. Navigate to folder: ~/Documents/MyNotes/
+4. Click "Open"
+
+<!-- Vault structure -->
+MyVault/
+├── .obsidian/              # Configuration folder
+│   ├── app.json            # App settings
+│   ├── appearance.json     # Theme settings
+│   ├── community-plugins.json
+│   ├── core-plugins.json
+│   └── workspace.json      # Layout settings
+├── Daily Notes/
+├── Projects/
+└── Notes/
+```
+
+## Creating and Linking Notes
+
+Create notes with internal links using wikilink syntax
+
+Obsidian's core strength is linking notes together to build a knowledge graph. The double bracket syntax creates links between notes.
+
+```markdown
+<!-- Create a note by typing -->
+# Three Laws of Motion
+
+The laws of motion are three laws stated by [[Isaac Newton]],
+that describe the relationship between the motion of an object,
+and the forces acting on it.
+
+## First Law - [[Law of Inertia]]
+An object at rest stays at rest, and an object in motion
+stays in motion unless acted upon by an external force.
+
+## Second Law - [[F = ma]]
+The acceleration of an object depends on the mass of the
+object and the amount of force applied.
+
+## Third Law - [[Action and Reaction]]
+For every action, there is an equal and opposite reaction.
+
+<!-- Links to non-existent notes appear dimmed -->
+<!-- Click while holding Ctrl/Cmd to follow link -->
+<!-- Click dimmed link to create the note -->
+
+<!-- Alternative Markdown link syntax -->
+[Three laws of motion](Three%20laws%20of%20motion.md)
+
+<!-- Link to headings -->
+[[Three Laws of Motion#First Law]]
+
+<!-- Link with custom display text -->
+[[Three Laws of Motion|Newton's Laws]]
+
+<!-- Embed notes inline -->
+![[Law of Inertia]]
+```
+
+## Markdown Formatting Syntax
+
+Format notes using Obsidian-flavored Markdown
+
+Obsidian supports standard Markdown plus extensions for better note-taking.
+
+```markdown
+<!-- Headers -->
+# Heading 1
+## Heading 2
+### Heading 3
+
+<!-- Text formatting -->
+**Bold text**
+*Italic text*
+==Highlighted text==
+~~Strikethrough text~~
+
+<!-- Lists -->
+- Unordered list item
+- Another item
+  - Nested item
+
+1. Ordered list
+2. Second item
+   1. Nested ordered
+
+<!-- Task lists -->
+- [x] Completed task
+- [ ] Incomplete task
+- [?] Custom checkbox
+
+<!-- Code blocks with syntax highlighting -->
+```javascript
+function calculateSum(a, b) {
+  return a + b;
+}
+```
+
+<!-- Inline code -->
+Use `backticks` for inline code
+
+<!-- Blockquotes -->
+> This is a quote
+> - Author Name
+
+<!-- Callouts -->
+> [!info]
+> This is an info callout
+
+> [!warning]
+> This is a warning
+
+> [!tip]
+> Pro tip goes here
+
+<!-- Tables -->
+| Name | Age | City |
+|------|-----|------|
+| Alice | 30 | NYC |
+| Bob | 25 | LA |
+
+<!-- Footnotes -->
+This sentence has a footnote[^1].
+
+[^1]: This is the footnote text.
+
+<!-- Comments (only visible in edit mode) -->
+%%This is a comment%%
+
+<!-- Horizontal rule -->
+---
+
+<!-- External links -->
+[Obsidian Website](https://obsidian.md)
+
+<!-- Images -->
+![Alt text](path/to/image.png)
+![Resized|300](image.png)
+```
+
+## Properties and Metadata
+
+Add structured metadata to notes using properties
+
+Properties (formerly YAML frontmatter) allow you to attach structured data to notes for filtering, sorting, and querying.
+
+```markdown
+---
+title: Project Alpha
+status: in-progress
+tags: [project, important]
+created: 2024-01-15
+due: 2024-03-01
+team: ["Alice", "Bob", "Charlie"]
+budget: 50000
+archived: false
+link: "[[Related Project]]"
+---
+
+# Project Alpha
+
+<!-- Property types available -->
+---
+text_field: Simple text value
+number_field: 42
+checkbox_field: true
+date_field: 2024-01-15
+datetime_field: 2024-01-15T14:30:00
+list_field:
+  - Item 1
+  - Item 2
+  - Item 3
+tags_field: [tag1, tag2]
+link_field: "[[Another Note]]"
+links_list:
+  - "[[Note 1]]"
+  - "[[Note 2]]"
+---
+
+<!-- Add property via command -->
+Cmd/Ctrl + ; → Add file property
+
+<!-- Search by properties -->
+# In search bar:
+[status]                    # Files with status property
+[status:in-progress]        # Files where status is in-progress
+[status:Draft OR Published] # Multiple values
+[budget:>10000]            # Numeric comparison
+[archived:false]           # Boolean values
+```
+
+## Search and Query
+
+Advanced search with operators and filters
+
+Obsidian's search supports complex queries with operators, regex, and property filters.
+
+```markdown
+<!-- Basic search -->
+meeting work              # Files containing both words
+meeting OR work          # Files containing either word
+
+<!-- Exclude terms -->
+meeting -work            # Contains meeting but not work
+meeting -(work meetup)   # Contains meeting but not both work and meetup
+
+<!-- Exact phrases -->
+"star wars"              # Exact phrase match
+"they said \"hello\""    # Escaped quotes within phrase
+
+<!-- Search operators -->
+file:.jpg                      # Files with .jpg in filename
+path:"Daily notes/2024"        # Files in specific path
+content:"happy cat"            # Text in content only
+tag:#work                      # Files with #work tag
+match-case:ImportantWord       # Case-sensitive search
+line:(mix flour)               # Lines containing both words
+block:(dog cat)                # Same block contains both
+section:(dog cat)              # Same section contains both
+task:call                      # Tasks containing "call"
+task-todo:call                 # Uncompleted tasks
+task-done:call                 # Completed tasks
+
+<!-- Property search -->
+[aliases]                      # Has aliases property
+[aliases:Name]                 # Specific alias value
+[status:Draft OR Published]    # Multiple property values
+
+<!-- Regular expressions -->
+/\d{4}-\d{2}-\d{2}/           # Matches dates like 2024-01-15
+path:/\d{4}-\d{2}/            # Date in file path
+
+<!-- Complex queries with grouping -->
+meeting (work OR meetup) personal
+(tag:#project OR tag:#urgent) -tag:#archived
+
+<!-- Embed search in notes -->
+```query
+tag:#important status:active
+```
+```
+
+## Bases - Database Views
+
+Create database-like views of notes with filtering and sorting
+
+Bases allow you to view and manage notes as structured databases with multiple view types.
+
+```markdown
+<!-- Embed a base in a note -->
+```base
+view: table
+from: "Projects"
+where: status = "active"
+columns:
+  - name
+  - status
+  - due_date
+  - priority
+sort: due_date asc
+```
+
+<!-- Base file format (.base) -->
+```yaml
+name: Active Projects
+views:
+  - name: Table View
+    type: table
+    from: '"Projects"'
+    where: 'status = "active"'
+    columns:
+      - file.name
+      - status
+      - due_date
+      - priority
+    sort:
+      - field: due_date
+        order: asc
+
+  - name: Cards View
+    type: cards
+    from: '"Projects"'
+    image: cover_image
+    title: file.name
+    subtitle: status
+
+  - name: Map View
+    type: map
+    from: '"Travel"'
+    latitude: lat
+    longitude: lon
+```
+
+<!-- Base query examples -->
+```base
+# List all tasks due this week
+view: list
+from: ""
+where: task = true AND due_date >= today() AND due_date <= today() + 7d
+
+# Table of team members
+view: table
+from: "Team"
+columns:
+  - name
+  - role
+  - email
+  - department
+sort: name asc
+
+# Card gallery of book notes
+view: cards
+from: "Books"
+where: status = "read"
+image: cover
+```
+
+## Canvas - Visual Note Layout
+
+Create infinite canvas workspaces for visual thinking
+
+Canvas provides a spatial interface for arranging and connecting notes, media, and web content.
+
+```markdown
+<!-- Create new canvas -->
+Command Palette → "Canvas: Create new canvas"
+# Or right-click folder → New canvas
+# Or click ribbon icon
+
+<!-- Canvas file format (.canvas) -->
+{
+  "nodes": [
+    {
+      "id": "node1",
+      "type": "text",
+      "text": "# Central Idea\n\nThis is a text card",
+      "x": 0,
+      "y": 0,
+      "width": 250,
+      "height": 200,
+      "color": "1"
+    },
+    {
+      "id": "node2",
+      "type": "file",
+      "file": "Notes/Important Note.md",
+      "x": 300,
+      "y": 0,
+      "width": 400,
+      "height": 300
+    },
+    {
+      "id": "node3",
+      "type": "link",
+      "url": "https://example.com",
+      "x": 0,
+      "y": 250,
+      "width": 400,
+      "height": 300
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge1",
+      "fromNode": "node1",
+      "toNode": "node2",
+      "label": "leads to"
+    }
+  ]
+}
+
+<!-- Canvas interactions -->
+# Add cards:
+- Drag files from file explorer
+- Double-click to create text card
+- Right-click → Add note/media/web page
+
+# Connect cards:
+- Hover over card edge → drag to another card
+- Double-click connection to add label
+- Right-click connection → Set color
+
+# Navigate:
+- Space + drag to pan
+- Ctrl/Cmd + scroll to zoom
+- Shift + 1 to zoom to fit
+- Shift + 2 to zoom to selection
+```
+
+## Core Plugins
+
+Enable and configure built-in functionality
+
+Core plugins are officially maintained features that can be toggled on or off.
+
+```markdown
+<!-- Access: Settings → Core plugins -->
+
+<!-- Daily Notes -->
+# Settings:
+- Date format: YYYY-MM-DD
+- New file location: Daily Notes/
+- Template: Templates/Daily Template.md
+
+# Usage:
+Command: "Open today's daily note"
+Hotkey: Ctrl/Cmd + T (default)
+
+<!-- Templates -->
+# Create template:
+---
+created: {{date}}
+modified: {{time}}
+---
+
+# {{title}}
+
+## Notes
+{{content}}
+
+# Insert template:
+Command: "Templates: Insert template"
+
+<!-- Quick Switcher -->
+# Open: Ctrl/Cmd + O
+# Type to search: "project alpha"
+# Arrow keys to navigate
+# Enter to open
+
+<!-- Graph View -->
+# Open: Ctrl/Cmd + G
+# Filters:
+- Tags: #project, -#archived
+- Folders: Projects/, -Archive/
+- Links: Orphans only
+# Groups by tags, color coded
+
+<!-- Search Plugin -->
+# Open: Ctrl/Cmd + Shift + F
+# Features:
+- Operators: tag:, file:, path:, content:
+- Regex: /pattern/
+- Copy results
+- Embed results in notes
+
+<!-- Backlinks -->
+# View in sidebar:
+- Linked mentions (explicit [[links]])
+- Unlinked mentions (text matches)
+# Click to navigate
+```
+
+## Community Plugins
+
+Extend Obsidian with community-built plugins
+
+Thousands of community plugins add features like calendars, kanban boards, and integrations.
+
+```markdown
+<!-- Enable community plugins -->
+Settings → Community plugins → Turn on community plugins
+# Browse and install from plugin marketplace
+
+<!-- Install a plugin -->
+1. Settings → Community plugins → Browse
+2. Search for plugin name
+3. Click Install
+4. Click Enable
+
+<!-- Popular plugins (examples) -->
+
+# Dataview - Query notes like a database
+```dataview
+TABLE status, due_date, priority
+FROM "Projects"
+WHERE status = "active"
+SORT due_date ASC
+```
+
+# Templater - Advanced templating
+```
+File created: <% tp.file.creation_date() %>
+Current time: <% tp.date.now() %>
+Random quote: <% tp.web.daily_quote() %>
+```
+
+# Calendar - Visual calendar interface
+# Shows daily notes in calendar grid
+# Click date to create/open daily note
+
+# Kanban - Kanban board plugin
+---kanban-plugin: basic
+---
+## Todo
+- [ ] Task 1
+- [ ] Task 2
+
+## In Progress
+- [ ] Task 3
+
+## Done
+- [x] Task 4
+
+<!-- Update plugins -->
+Settings → Community plugins → Check for updates → Update all
+```
+
+## Obsidian Sync
+
+Sync vaults across devices with end-to-end encryption
+
+Obsidian Sync is a paid service for secure multi-device synchronization.
+
+```markdown
+<!-- Setup Sync -->
+1. Subscribe at obsidian.md/sync
+2. Settings → Sync → Login
+3. Create remote vault or connect to existing
+4. Choose sync settings
+
+<!-- Sync configuration -->
+Settings → Sync → Selective sync:
+- ✓ Notes and settings
+- ✓ Themes and snippets
+- ✓ Plugins and plugin settings
+- ✗ Archive/ folder
+- ✗ .obsidian/workspace.json (per-device)
+
+<!-- Sync regions -->
+Settings → Sync → Sync region:
+- US (default)
+- EU
+- Asia-Pacific
+
+<!-- Version history -->
+Right-click file → View version history
+# Browse previous versions
+# Restore to any point in time
+# Versions kept based on:
+- 1-year mobile history
+- Desktop versions by plan
+
+<!-- Status messages -->
+✓ Synced - All up to date
+⟳ Syncing - Transfer in progress
+⚠ Sync error - Check log for details
+⏸ Paused - Manually paused sync
+
+<!-- Collaborate on vault -->
+Settings → Sync → Share
+# Invite users by email
+# Manage permissions
+# Each user needs Sync subscription
+```
+
+## Obsidian Publish
+
+Publish notes as a public website
+
+Obsidian Publish is a paid hosting service for publishing notes online.
+
+```markdown
+<!-- Setup Publish -->
+1. Subscribe at obsidian.md/publish
+2. Settings → Core plugins → Enable Publish
+3. Click Publish icon in ribbon
+4. Create site: mysite.obsidian.publish
+
+<!-- Publish notes -->
+1. Open Publish panel
+2. Select notes to publish
+3. Click "Publish"
+# Site available at: https://publish.obsidian.md/mysite
+
+<!-- Configure site -->
+Settings → Publish → Site options:
+- Site name: My Knowledge Base
+- Home page: index
+- Navbar: Home, About, Projects
+- Theme: Light/Dark/Adaptive
+- Custom CSS
+- Google Analytics ID
+
+<!-- Custom domain -->
+1. Publish settings → Custom domain
+2. Add domain: docs.example.com
+3. Add DNS records:
+   - CNAME: publish-main.obsidian.md
+4. Wait for propagation
+5. Enable HTTPS
+
+<!-- Publishing options per file -->
+---
+publish: true
+permalink: custom-url-slug
+description: SEO description
+cover: path/to/cover.png
+---
+
+<!-- Exclude from publishing -->
+Settings → Publish → Excluded files:
+- Private/
+- Templates/
+- *.excalidraw
+```
+
+## Obsidian Web Clipper
+
+Save web content to your vault from browser
+
+Web Clipper is a free browser extension for capturing web content.
+
+```markdown
+<!-- Install Web Clipper -->
+# Available for:
+- Chrome/Brave/Edge: Chrome Web Store
+- Firefox: Firefox Add-ons
+- Safari: Safari Extensions
+
+<!-- Basic clipping -->
+1. Navigate to web page
+2. Click Obsidian icon in browser
+3. Select template (Article, Simplified, Screenshot)
+4. Choose vault and location
+5. Click "Clip to Obsidian"
+
+<!-- Highlighter mode -->
+1. Click Obsidian icon
+2. Enable Highlighter
+3. Select text/images on page
+4. Click "Capture selection"
+# Only selected content saved
+
+<!-- Interpreter mode -->
+1. Click Obsidian icon
+2. Enable Interpreter
+3. Enter prompt: "Extract main points as bullet list"
+4. AI processes page content
+5. Save transformed output
+
+<!-- Custom templates -->
+# Template with variables:
+---
+source: {{url}}
+author: {{author}}
+published: {{published}}
+clipped: {{date}}
+---
+
+# {{title}}
+
+{{content}}
+
+## Highlights
+{{highlights}}
+
+<!-- Template filters -->
+{{title|upper}}              # UPPERCASE TITLE
+{{content|strip_html}}       # Remove HTML tags
+{{url|domain}}              # Extract domain only
+{{date|format:YYYY-MM-DD}}  # Date formatting
+```
+
+## Obsidian URI
+
+Deep link into Obsidian from external applications
+
+Obsidian URI allows other apps and scripts to open vaults, notes, and trigger actions.
+
+```markdown
+<!-- Open vault -->
+obsidian://open?vault=MyVault
+
+<!-- Open specific note -->
+obsidian://open?vault=MyVault&file=Projects/Alpha.md
+
+<!-- Open with heading -->
+obsidian://open?vault=MyVault&file=Note.md&heading=Section%20Title
+
+<!-- Create new note -->
+obsidian://new?vault=MyVault&name=New%20Note&content=Hello%20World
+
+<!-- Append to note -->
+obsidian://append?vault=MyVault&file=Daily.md&content=%0A-%20New%20item
+
+<!-- Search -->
+obsidian://search?vault=MyVault&query=tag%3A%23project
+
+<!-- Advanced actions -->
+obsidian://advanced-uri?vault=MyVault&daily=true
+obsidian://advanced-uri?vault=MyVault&filepath=Note.md&mode=append&data=New%20line
+
+<!-- Use in HTML -->
+<a href="obsidian://open?vault=MyVault&file=Note.md">
+  Open in Obsidian
+</a>
+
+<!-- Use in scripts -->
+#!/bin/bash
+# Quick capture script
+TEXT="$1"
+open "obsidian://new?vault=Inbox&name=Quick%20Note&content=${TEXT}"
+
+# macOS automation
+osascript -e 'tell application "Obsidian" to open location "obsidian://open?vault=MyVault"'
+
+# URL encoding for spaces and special chars
+# Space: %20
+# Newline: %0A
+# Hash: %23
+```
+
+## Obsidian Help Documentation
+
+This documentation repository demonstrates best practices for using Obsidian by organizing comprehensive help content into an interconnected knowledge base. The documentation covers beginner workflows like creating vaults and linking notes, intermediate topics like search operators and properties, and advanced features like plugin development and API integration. Each help file is written in Markdown with properties for organization, making the documentation itself a practical example of Obsidian's capabilities.
+
+The help site serves multiple purposes: as user documentation accessible at help.obsidian.md, as a template for structuring knowledge bases, and as a demonstration of Obsidian Publish in action. Users can explore topics through multiple pathways including the navigation menu, search functionality, backlinks between related topics, and an interactive graph view showing relationships. The documentation is maintained as an open-source repository on GitHub, accepting community contributions for corrections, improvements, and translations into multiple languages including Arabic, Japanese, Korean, and Vietnamese.
