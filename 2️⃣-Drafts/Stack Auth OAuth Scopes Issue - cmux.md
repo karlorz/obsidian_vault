@@ -1,8 +1,8 @@
 # Stack Auth OAuth Scopes Issue - cmux
 
 **Date:** 2025-11-30
-**Status:** ✅ Resolved
-**Issue Type:** Configuration & User State Management
+**Status:** ⚠️ Resolved Locally (Upstream Fix Needed)
+**Issue Type:** Missing Codebase Configuration
 
 ## Problem Summary
 
@@ -20,7 +20,20 @@ Missing scopes:
 
 ## Root Cause
 
-**This is NOT a codebase issue.** The issue was caused by **connecting GitHub OAuth BEFORE adding the `oauthScopesOnSignIn` configuration**.
+**This IS a codebase issue.** The `oauthScopesOnSignIn` configuration **is missing from the upstream repository** (as of v1.0.182).
+
+### Investigation Results (2025-11-30)
+
+**Upstream Repository Status:**
+- ✅ Checked v1.0.182 release (latest as of investigation)
+- ❌ `oauthScopesOnSignIn` configuration **NOT present** in either:
+  - `apps/www/lib/utils/stack.ts` (server-side)
+  - `apps/client/src/lib/stack.ts` (client-side)
+- ❌ No issues or PRs in manaflow-ai/cmux repository report this problem
+- ❌ No commits in git history adding this configuration
+
+**Local Fix Applied:**
+The `oauthScopesOnSignIn` configuration exists only as **uncommitted local changes** from troubleshooting this issue.
 
 ### How Stack Auth Handles OAuth Scopes
 
@@ -115,16 +128,32 @@ To avoid this issue in the future:
 3. **Test OAuth flow** in development before deploying to production
 4. **Educate team members** about Stack Auth's scope caching behavior
 
-## Why This Isn't a Codebase Issue
+## Why This IS a Codebase Issue
 
-The official cmux production app doesn't have this issue because:
+### The Missing Configuration
 
-1. The `oauthScopesOnSignIn` configuration was added to the codebase from the beginning
-2. Users connecting for the first time automatically get the correct scopes
-3. This issue only affects:
-   - **Early adopters** who connected before the configuration was added
-   - **Development environments** where developers connect before adding the config
-   - **Self-hosted instances** where the deployer connects before configuring scopes
+The upstream cmux codebase (including v1.0.182) **lacks the `oauthScopesOnSignIn` configuration**. This means:
+
+1. ❌ **All new users** will experience this issue when first connecting GitHub
+2. ❌ **Production deployments** will have this problem
+3. ❌ **Every fresh installation** will fail GitHub authentication for cloud workspaces
+
+### Impact on Users
+
+Without `oauthScopesOnSignIn` in the codebase:
+- GitHub OAuth only requests the default scope: `user:email`
+- Cloud workspace creation fails with: `error validating token: missing required scopes 'repo', 'read:org'`
+- Users must manually:
+  1. Add the configuration themselves
+  2. Delete their OAuth connection
+  3. Reconnect with proper scopes
+
+### Recommended Upstream Fix
+
+This issue should be fixed in the upstream repository by:
+1. **Adding `oauthScopesOnSignIn` to both Stack Auth configurations**
+2. **Adding documentation** about required GitHub scopes
+3. **Optionally:** Improving error messages to guide users when scopes are missing
 
 ## Technical Details
 
@@ -158,6 +187,22 @@ export const configureGithubAccess = async (
 - Stack Auth OAuth Scopes Documentation: https://docs.stack-auth.com/docs/apps/oauth
 - Stack Auth Issue #606 (Discord oauthScopesOnSignIn not taking effect): https://github.com/stack-auth/stack-auth/issues/606
 - GitHub OAuth Scopes Documentation: https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps
+- cmux Repository: https://github.com/manaflow-ai/cmux
+
+## Upstream Contribution Needed
+
+### Current Status (v1.0.182)
+- ❌ `oauthScopesOnSignIn` not configured
+- ❌ No documentation about required GitHub scopes
+- ❌ No issues filed in repository about this problem
+
+### Suggested Actions
+1. **File an issue** in manaflow-ai/cmux repository describing this problem
+2. **Submit a PR** adding the `oauthScopesOnSignIn` configuration to both:
+   - `apps/www/lib/utils/stack.ts`
+   - `apps/client/src/lib/stack.ts`
+3. **Add documentation** in README about required GitHub OAuth scopes
+4. **Consider adding** better error messages when GitHub authentication fails due to missing scopes
 
 ## Related Files
 
@@ -168,4 +213,9 @@ export const configureGithubAccess = async (
 
 ---
 
-**Key Takeaway:** Stack Auth's `oauthScopesOnSignIn` must be configured **before** users first connect their OAuth accounts, as scopes are cached on initial connection and do not automatically update when the configuration changes.
+**Key Takeaways:**
+1. **This is a codebase issue:** The `oauthScopesOnSignIn` configuration is missing from the upstream repository (v1.0.182 and earlier)
+2. **All users are affected:** Anyone installing cmux and connecting GitHub will encounter this issue
+3. **Local fix applied:** The configuration has been added locally but needs to be contributed upstream
+4. **Scope caching behavior:** Stack Auth caches OAuth scopes on first connection - reconnection required after adding configuration
+5. **Upstream contribution needed:** Issue should be filed and PR submitted to fix this in the main repository
