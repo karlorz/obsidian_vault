@@ -73,9 +73,20 @@ Set these in your **Convex Dashboard** → Settings → Environment Variables:
 | Variable | Description |
 |----------|-------------|
 | `CMUX_GITHUB_APP_ID` | Numeric App ID from GitHub App settings |
-| `CMUX_GITHUB_APP_PRIVATE_KEY` | RSA private key (PEM format) |
+| `CMUX_GITHUB_APP_PRIVATE_KEY` | Private key in **PKCS#8 format** (see note below) |
 | `GITHUB_APP_WEBHOOK_SECRET` | Webhook secret (for signature verification) |
 | `INSTALL_STATE_SECRET` | HMAC secret for signing installation state tokens (generate with `openssl rand -hex 32`) |
+
+> **Important: Private Key Format**
+>
+> GitHub provides private keys in PKCS#1 format (`-----BEGIN RSA PRIVATE KEY-----`), but Convex's Web Crypto API requires **PKCS#8 format** (`-----BEGIN PRIVATE KEY-----`).
+>
+> Convert using:
+> ```bash
+> openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt -in github-app-private-key.pem
+> ```
+>
+> The `setup-convex-env.sh` script handles this conversion automatically.
 
 ### 2. Vercel Environment Variables (apps/client)
 
@@ -143,6 +154,57 @@ How the GitHub App installation works:
 1. Ensure the webhook secret in GitHub App settings matches `GITHUB_APP_WEBHOOK_SECRET` in Convex
 2. Check Convex logs for specific error messages
 
+### ASN.1 DER Error: "unexpected ASN.1 DER tag: expected SEQUENCE, got INTEGER"
+
+**Cause**: Private key is in PKCS#1 format instead of PKCS#8.
+
+**Fix**:
+Convert the key from PKCS#1 to PKCS#8:
+```bash
+openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt -in github-app-private-key.pem
+```
+
+Or use the setup script which handles this automatically:
+```bash
+make convex-init-prod
+# or
+./scripts/setup-convex-env.sh --prod
+```
+
+### Convex Auth "No auth provider found matching the given token"
+
+**Cause**: Trailing newlines in environment variable values corrupt the issuer URLs.
+
+**Root cause analysis** (tested and confirmed):
+1. Convex's `auth.config.ts` runs in a **V8 isolate** that **CAN access** `process.env` at runtime
+2. Environment variables set via Convex dashboard ARE passed to the auth.config isolate
+3. The original `setup-convex-env.sh` script used `echo "$value" | jq -Rs .` which added trailing newlines
+4. This caused `NEXT_PUBLIC_STACK_PROJECT_ID` to be stored as `"uuid\n"` instead of `"uuid"`
+5. The corrupted value produced invalid issuer URLs like:
+   ```
+   https://api.stack-auth.com/api/v1/projects/6bfe8b9a-2e36-431d-861c-01ba7712d844\n
+   ```
+6. Stack Auth JWT tokens have the correct issuer (no newline), so the comparison fails
+
+**Fix**:
+Use `printf '%s'` instead of `echo` in the setup script to avoid adding trailing newlines:
+```bash
+# Before (buggy) - echo adds a newline, jq -Rs preserves it
+local escaped_value=$(echo "$value" | jq -Rs . | sed 's/^"//;s/"$//')
+
+# After (fixed) - printf doesn't add trailing newline
+local escaped_value=$(printf '%s' "$value" | jq -Rs . | sed 's/^"//;s/"$//')
+```
+
+Then re-run the setup script:
+```bash
+make convex-init-prod
+# or
+./scripts/setup-convex-env.sh --prod
+```
+
+> **Note**: The upstream code using `env.NEXT_PUBLIC_STACK_PROJECT_ID` works correctly - the issue was in our local setup script corrupting env var values with trailing newlines.
+
 ---
 
 ## Notes
@@ -161,6 +223,18 @@ How the GitHub App installation works:
 - HTTP routes: `packages/convex/convex/http.ts`
 - State token generation: `packages/convex/convex/github_app.ts`
 - Installation setup: `packages/convex/convex/github_setup.ts`
+- GitHub App JWT signing: `packages/convex/_shared/githubApp.ts`
+- Auth config: `packages/convex/convex/auth.config.ts`
 - Client env: `apps/client/src/client-env.ts`
 - Server env: `apps/www/lib/utils/www-env.ts`
 - Dashboard install button: `apps/client/src/components/dashboard/DashboardInputControls.tsx`
+- Setup script: `scripts/setup-convex-env.sh`
+
+---
+
+## Makefile Commands
+
+| Command | Description |
+|---------|-------------|
+| `make convex-init-prod` | Set Convex env vars for production (auto-converts PKCS#1 to PKCS#8) |
+| `make convex-clear-prod` | Clear ALL data from production Convex DB |
