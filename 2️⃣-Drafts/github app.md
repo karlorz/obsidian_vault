@@ -26,6 +26,7 @@
 | **Checks** | Read-only | Process `check_run` webhook events (Vercel, CI, etc.) |
 | **Commit statuses** | Read-only | Process `status` webhook events |
 | **Deployments** | Read-only | Process `deployment` and `deployment_status` webhook events |
+| **Code scanning alerts(Security events)** | Read-only | Code scanning alerts integration |
 
 ### Account Permissions
 
