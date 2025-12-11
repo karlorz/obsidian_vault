@@ -79,6 +79,10 @@ Referenced throughout workflow (lines 150-155, 273-277, 399-403, 578-582, 627-63
 
 **These are injected into `.env` file during build process**
 
+GitHub Secret - `CMUX_GITHUB_APP_PRIVATE_KEY`
+```
+awk '{printf "%s\\n", $0}' /Users/karlchow/Downloads/cmux-client.2025-12-07.private-key.pem | gh secret set CMUX_GITHUB_APP_PRIVATE_KEY --repo karlorz/cmux
+```
 ### macOS Signing & Notarization Secrets
 
 Referenced at lines 162-166, 285-289, 444-448:
