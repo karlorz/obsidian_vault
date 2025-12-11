@@ -98,14 +98,23 @@ These secrets are required for `.github/workflows/checks.yml` and `.github/workf
 
 ### GitHub App Private Key Setup (Critical)
 
-The `CMUX_GITHUB_APP_PRIVATE_KEY` requires special handling. Multi-line PEM keys often get corrupted when stored in environment variables across different systems.
+The `CMUX_GITHUB_APP_PRIVATE_KEY` requires special handling depending on the environment.
 
 **Symptoms of incorrect setup:**
 - CI fails with `error:0900006e:PEM routines:OPENSSL_internal:NO_START_LINE`
 - CI fails with `error:1E08010C:DECODER routines::unsupported`
 - Error occurs at module load time, not during GitHub API calls
 
-**Best Practice: Use single-line format with literal `\n`**
+#### Format Requirements by Environment
+
+| Environment | Required Format | Why |
+|-------------|-----------------|-----|
+| **GitHub Secrets** | Single-line with literal `\n` | GitHub can mangle multi-line values |
+| **Convex** | Either format works | JSON API preserves newlines; `setup-convex-env.sh` uploads multi-line |
+| **Vercel** | Single-line with literal `\n` | Environment variables can mangle multi-line |
+| **Local `.env`** | Either format works | Both are handled by code |
+
+#### Setting GitHub Secrets (Single-line format)
 
 Convert your `.pem` file to single-line format:
 ```bash
@@ -118,20 +127,32 @@ Set in GitHub Secrets:
 awk '{printf "%s\\n", $0}' /path/to/your-github-app-private-key.pem | gh secret set CMUX_GITHUB_APP_PRIVATE_KEY --repo karlorz/cmux
 ```
 
-**Use this same single-line format consistently across:**
-- Local `.env` file
-- GitHub Secrets
-- Vercel environment variables
-- Convex environment variables
+#### Setting Convex Environment Variables
 
-**Key Format Handling in Code:**
+Use `scripts/setup-convex-env.sh` which reads from your `.env` file and uploads via JSON API:
+```bash
+# Local development
+./scripts/setup-convex-env.sh
+
+# Production
+./scripts/setup-convex-env.sh --prod --env-file .env.production
+```
+
+The script uploads the key with **actual newlines** (multi-line format) via JSON encoding. The Convex dashboard will show the key as multi-line - this is correct and expected.
+
+#### How the Code Handles Both Formats
+
+All code paths use `.replace(/\\n/g, "\n")` which:
+- **Single-line input** (literal `\n`): Converts to actual newlines
+- **Multi-line input** (actual newlines): No change needed, passes through
 
 | Environment | File | How It Handles the Key |
 |-------------|------|------------------------|
 | `apps/www` (Node.js) | `lib/utils/githubPrivateKey.ts` | `.replace(/\\n/g, "\n")` then `node:crypto` converts PKCS#1 → PKCS#8 |
 | `packages/convex` (Web Crypto) | `_shared/githubApp.ts` | `.replace(/\\n/g, "\n")` then pure JS ASN.1 wrapping converts PKCS#1 → PKCS#8 |
 
-**Why PKCS#1 vs PKCS#8 matters:**
+#### Why PKCS#1 vs PKCS#8 matters
+
 - GitHub generates keys in **PKCS#1** format (`-----BEGIN RSA PRIVATE KEY-----`)
 - Web Crypto API (`crypto.subtle.importKey`) only supports **PKCS#8** format (`-----BEGIN PRIVATE KEY-----`)
 - The Convex runtime cannot use `node:crypto`, so it uses pure JavaScript ASN.1 manipulation to wrap PKCS#1 in PKCS#8 structure
@@ -324,16 +345,21 @@ error:0900006e:PEM routines:OPENSSL_internal:NO_START_LINE
 error:1E08010C:DECODER routines::unsupported
 ```
 
-**Fix:** Re-set the secret using single-line format:
+**Fix for GitHub Secrets:** Re-set the secret using single-line format:
 ```bash
 awk '{printf "%s\\n", $0}' /path/to/your-github-app-private-key.pem | gh secret set CMUX_GITHUB_APP_PRIVATE_KEY --repo karlorz/cmux
 ```
 
+**Fix for Convex:** Re-run the setup script:
+```bash
+./scripts/setup-convex-env.sh --prod --env-file .env.production
+```
+
 **Why this happens:**
-- GitHub Secrets can mangle multi-line values
+- GitHub Secrets can mangle multi-line values (use single-line format)
 - The PEM key needs proper `-----BEGIN RSA PRIVATE KEY-----` header
-- Newlines must be preserved for OpenSSL to parse the key
-- Single-line format with literal `\n` is most portable across all systems
+- Newlines must be preserved for the key to be parsed correctly
+- Convex uses JSON API which preserves newlines correctly (multi-line is fine)
 
 ## Next Steps After Setup
 
