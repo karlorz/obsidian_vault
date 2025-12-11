@@ -79,10 +79,53 @@ Referenced throughout workflow (lines 150-155, 273-277, 399-403, 578-582, 627-63
 
 **These are injected into `.env` file during build process**
 
-GitHub Secret - `CMUX_GITHUB_APP_PRIVATE_KEY`
+### CI/CD Secrets (Checks & Tests Workflows)
+
+These secrets are required for `.github/workflows/checks.yml` and `.github/workflows/tests.yml`:
+
+| Secret Name | Description | Format |
+|-------------|-------------|--------|
+| `STACK_SECRET_SERVER_KEY` | Stack Auth server key | Plain string |
+| `STACK_SUPER_SECRET_ADMIN_KEY` | Stack Auth admin key | Plain string |
+| `STACK_DATA_VAULT_SECRET` | Stack Auth data vault secret | Plain string |
+| `CMUX_GITHUB_APP_ID` | GitHub App ID | Plain string (e.g., `123456`) |
+| `CMUX_GITHUB_APP_PRIVATE_KEY` | GitHub App private key | **Single-line with `\n`** (see below) |
+| `CMUX_TASK_RUN_JWT_SECRET` | JWT secret for task runs | Plain string |
+| `MORPH_API_KEY` | Morph Cloud API key | Plain string |
+| `CONVEX_DEPLOY_KEY` | Convex deployment key | Plain string |
+| `ANTHROPIC_API_KEY` | Anthropic API key | Plain string |
+| `STACK_TEST_USER_ID` | Test user ID for e2e tests | Plain string |
+
+### GitHub App Private Key Setup (Critical)
+
+The `CMUX_GITHUB_APP_PRIVATE_KEY` requires special handling. Multi-line PEM keys often get corrupted when stored in environment variables across different systems.
+
+**Symptoms of incorrect setup:**
+- CI fails with `error:0900006e:PEM routines:OPENSSL_internal:NO_START_LINE`
+- CI fails with `error:1E08010C:DECODER routines::unsupported`
+- Error occurs at module load time, not during GitHub API calls
+
+**Best Practice: Use single-line format with literal `\n`**
+
+Convert your `.pem` file to single-line format:
+```bash
+# Generate single-line key
+awk '{printf "%s\\n", $0}' /path/to/your-github-app-private-key.pem
 ```
-awk '{printf "%s\\n", $0}' /Users/karlchow/Downloads/cmux-client.2025-12-07.private-key.pem | gh secret set CMUX_GITHUB_APP_PRIVATE_KEY --repo karlorz/cmux
+
+Set in GitHub Secrets:
+```bash
+awk '{printf "%s\\n", $0}' /path/to/your-github-app-private-key.pem | gh secret set CMUX_GITHUB_APP_PRIVATE_KEY --repo karlorz/cmux
 ```
+
+**Use this same single-line format consistently across:**
+- Local `.env` file
+- GitHub Secrets
+- Vercel environment variables
+- Convex environment variables
+
+The code in `apps/www/lib/utils/githubPrivateKey.ts` handles conversion with `pem.replace(/\\n/g, "\n")`.
+
 ### macOS Signing & Notarization Secrets
 
 Referenced at lines 162-166, 285-289, 444-448:
@@ -262,6 +305,24 @@ All artifacts are uploaded to a GitHub Release with tag matching the version in 
 - Double-check secret names match exactly (case-sensitive)
 - Ensure secrets are set at repository level, not environment level
 - Try re-creating secrets (delete and add again)
+
+### Build Fails: "PEM routines" or "DECODER routines" Error
+This indicates the `CMUX_GITHUB_APP_PRIVATE_KEY` is malformed:
+```
+error:0900006e:PEM routines:OPENSSL_internal:NO_START_LINE
+error:1E08010C:DECODER routines::unsupported
+```
+
+**Fix:** Re-set the secret using single-line format:
+```bash
+awk '{printf "%s\\n", $0}' /path/to/your-github-app-private-key.pem | gh secret set CMUX_GITHUB_APP_PRIVATE_KEY --repo karlorz/cmux
+```
+
+**Why this happens:**
+- GitHub Secrets can mangle multi-line values
+- The PEM key needs proper `-----BEGIN RSA PRIVATE KEY-----` header
+- Newlines must be preserved for OpenSSL to parse the key
+- Single-line format with literal `\n` is most portable across all systems
 
 ## Next Steps After Setup
 
