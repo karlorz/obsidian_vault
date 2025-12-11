@@ -124,7 +124,18 @@ awk '{printf "%s\\n", $0}' /path/to/your-github-app-private-key.pem | gh secret 
 - Vercel environment variables
 - Convex environment variables
 
-The code in `apps/www/lib/utils/githubPrivateKey.ts` handles conversion with `pem.replace(/\\n/g, "\n")`.
+**Key Format Handling in Code:**
+
+| Environment | File | How It Handles the Key |
+|-------------|------|------------------------|
+| `apps/www` (Node.js) | `lib/utils/githubPrivateKey.ts` | `.replace(/\\n/g, "\n")` then `node:crypto` converts PKCS#1 → PKCS#8 |
+| `packages/convex` (Web Crypto) | `_shared/githubApp.ts` | `.replace(/\\n/g, "\n")` then pure JS ASN.1 wrapping converts PKCS#1 → PKCS#8 |
+
+**Why PKCS#1 vs PKCS#8 matters:**
+- GitHub generates keys in **PKCS#1** format (`-----BEGIN RSA PRIVATE KEY-----`)
+- Web Crypto API (`crypto.subtle.importKey`) only supports **PKCS#8** format (`-----BEGIN PRIVATE KEY-----`)
+- The Convex runtime cannot use `node:crypto`, so it uses pure JavaScript ASN.1 manipulation to wrap PKCS#1 in PKCS#8 structure
+- This conversion happens automatically at runtime - no manual pre-conversion needed
 
 ### macOS Signing & Notarization Secrets
 
