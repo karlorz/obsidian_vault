@@ -257,8 +257,67 @@ APPLE_API_ISSUER=...
 | Desktop | Electron, electron-vite, electron-builder |
 | Backend API | Hono (OpenAPI) |
 | Database | Convex |
-| Auth | Stack Auth |
+| Auth | Stack Auth (with GitHub App SSO) |
 | Native Addons | Rust (N-API via @napi-rs/cli) |
 | CI/CD | GitHub Actions |
 | Containerization | Docker, Docker-in-Docker |
 | Sandbox | MorphCloud (production), Docker Compose (local) |
+
+---
+
+## 11. Authentication Architecture
+
+> [!info] Updated 2025-12-21
+
+### Two GitHub Integrations
+
+cmux uses GitHub in two separate ways:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     GitHub Integration in cmux                       │
+├─────────────────────────────────┬───────────────────────────────────┤
+│       User Authentication       │       Repository Access            │
+├─────────────────────────────────┼───────────────────────────────────┤
+│ Stack Auth → GitHub App/OAuth   │ GitHub App Installation            │
+│                                 │                                     │
+│ Purpose: Login users            │ Purpose: Access repos, create PRs   │
+│ Config: Stack Auth dashboard    │ Config: NEXT_PUBLIC_GITHUB_APP_SLUG │
+│ Client ID: Iv23li.../Ov23li...  │ Webhooks, Private Key               │
+└─────────────────────────────────┴───────────────────────────────────┘
+```
+
+### Auth Flow
+
+```
+User clicks "Sign in with GitHub"
+        │
+        ▼
+   Stack Auth
+        │
+        ▼
+GitHub App Authorization (Iv23li...) ─── OR ─── OAuth App (Ov23li...)
+        │                                              │
+        ▼                                              ▼
+User authorized ◄──────────────────────────────────────┘
+        │
+        ▼
+Stack Auth creates/updates user
+        │
+        ▼
+User can access cmux dashboard
+```
+
+### Production vs Development
+
+| Environment | User Login (Stack Auth) | Repo Access |
+|-------------|------------------------|-------------|
+| **Upstream Production** | GitHub App `cmux-agent` | GitHub App `cmux-client` |
+| **Your Production** | GitHub App (recommended) | Your GitHub App |
+| **Local Development** | GitHub App or OAuth App | `cmux-local-dev` |
+
+### Related Notes
+
+- [[github app.md]] - Full GitHub App setup including Stack Auth integration
+- [[Stack Auth OAuth Scopes Issue - cmux]] - OAuth scopes (if using OAuth App)
+- [[cmux-dev.md]] - Development environment setup

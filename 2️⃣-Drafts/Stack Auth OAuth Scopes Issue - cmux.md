@@ -1,10 +1,19 @@
 # Stack Auth OAuth Scopes Issue - cmux
 
 **Date:** 2025-11-30
-**Status:** ⚠️ Resolved Locally (Upstream Fix Needed)
+**Updated:** 2025-12-21
+**Status:** ⚠️ Partially Obsolete - See Update Below
 **Issue Type:** Missing Codebase Configuration
 
-## Problem Summary
+> [!warning] Important Update (2025-12-21)
+> **Upstream has switched from OAuth App to GitHub App for Stack Auth login.**
+>
+> - Production (`cmux.sh`) now uses **GitHub App** `cmux-agent` (`Iv23lizj2TGiaHRDIEsO`) for user authentication
+> - GitHub Apps use **app-level permissions** instead of OAuth scopes
+> - The `oauthScopesOnSignIn` configuration may no longer be relevant if using GitHub App for auth
+> - See [[github app.md]] for GitHub App setup including Stack Auth integration
+
+## Problem Summary (Original - OAuth App)
 
 When creating new tasks/workspaces with cloud mode enabled in cmux, GitHub authentication failed with error:
 ```
@@ -18,7 +27,9 @@ Missing scopes:
 - ❌ Organizations and teams (read:org)
 - ❌ Repositories (repo)
 
-## Root Cause
+## Root Cause (OAuth App Setup)
+
+> [!note] This section applies only if using **OAuth App** for Stack Auth login
 
 **This IS a codebase issue.** The `oauthScopesOnSignIn` configuration **is missing from the upstream repository** (as of v1.0.182).
 
@@ -219,3 +230,46 @@ export const configureGithubAccess = async (
 3. **Local fix applied:** The configuration has been added locally but needs to be contributed upstream
 4. **Scope caching behavior:** Stack Auth caches OAuth scopes on first connection - reconnection required after adding configuration
 5. **Upstream contribution needed:** Issue should be filed and PR submitted to fix this in the main repository
+
+---
+
+## Update: GitHub App vs OAuth App for Stack Auth (2025-12-21)
+
+### Two Authentication Systems in cmux
+
+cmux uses **two separate GitHub integrations**:
+
+| Purpose | Type | Example Client ID |
+|---------|------|-------------------|
+| **User Login** (via Stack Auth) | GitHub App OR OAuth App | `Iv23li...` (App) or `Ov23li...` (OAuth) |
+| **Repository Access** (installations) | GitHub App | Configured via `NEXT_PUBLIC_GITHUB_APP_SLUG` |
+
+### Upstream Production Setup
+
+As of late 2025, upstream production (`cmux.sh`) uses:
+- **Stack Auth login:** GitHub App `cmux-agent` (`Iv23lizj2TGiaHRDIEsO`) by manaflow-ai
+- **Repository access:** GitHub App `cmux-client`
+
+### How to Identify Which Type You're Using
+
+Check your Stack Auth project's GitHub SSO configuration:
+- **Client ID starts with `Ov23li...`** → OAuth App (this note applies)
+- **Client ID starts with `Iv23li...`** → GitHub App (permissions set in app settings, not OAuth scopes)
+
+### Switching from OAuth App to GitHub App
+
+If you want to match upstream's auth pattern:
+
+1. **Configure your GitHub App for Stack Auth:**
+   - Add callback URL: `https://api.stack-auth.com/api/v1/auth/oauth/callback/github`
+   - Generate a Client Secret for the GitHub App
+
+2. **Update Stack Auth GitHub SSO:**
+   - Client ID: Use your GitHub App's `Iv23li...` ID
+   - Client Secret: Use the generated secret
+
+3. **Users will see:**
+   - "Authorize [Your GitHub App]" instead of OAuth App authorization
+   - Permissions are app-level, not OAuth scopes
+
+See [[github app.md#Stack Auth Integration]] for detailed setup instructions.

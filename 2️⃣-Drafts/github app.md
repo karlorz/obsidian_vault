@@ -238,3 +238,85 @@ make convex-init-prod
 |---------|-------------|
 | `make convex-init-prod` | Set Convex env vars for production (auto-converts PKCS#1 to PKCS#8) |
 | `make convex-clear-prod` | Clear ALL data from production Convex DB |
+
+---
+
+## Stack Auth Integration
+
+> [!info] Added 2025-12-21
+> GitHub Apps can also be used for **user authentication** via Stack Auth, not just repository access.
+
+### Two Uses of GitHub App in cmux
+
+| Use Case | Purpose | Configuration |
+|----------|---------|---------------|
+| **Repository Access** | Install on repos, create PRs, push code | `NEXT_PUBLIC_GITHUB_APP_SLUG`, webhooks |
+| **User Login** | Authenticate users via Stack Auth | Stack Auth GitHub SSO settings |
+
+### Client ID Format
+
+- **OAuth App:** `Ov23li...` (e.g., `Ov23lia4WjC65sbP8pas`)
+- **GitHub App:** `Iv23li...` (e.g., `Iv23liCMo25yNthl3LRn`)
+
+Upstream production uses **GitHub App** for both purposes.
+
+### Configuring GitHub App for Stack Auth Login
+
+To use your GitHub App for user authentication (matching upstream):
+
+#### 1. Add Stack Auth Callback URL to GitHub App
+
+In your GitHub App settings (https://github.com/settings/apps/YOUR-APP):
+
+1. Go to "Identifying and authorizing users" section
+2. Click "Add Callback URL"
+3. Add: `https://api.stack-auth.com/api/v1/auth/oauth/callback/github`
+4. Save changes
+
+#### 2. Generate Client Secret
+
+In your GitHub App settings:
+
+1. Scroll to "Client secrets" section
+2. Click "Generate a new client secret"
+3. **Copy immediately** - you won't see it again
+
+#### 3. Update Stack Auth GitHub SSO
+
+In Stack Auth dashboard (https://app.stack-auth.com/projects/YOUR-PROJECT/auth-methods):
+
+1. Click on GitHub provider → Configure
+2. Update credentials:
+   - **Client ID:** Your GitHub App's `Iv23li...` ID
+   - **Client Secret:** The secret you just generated
+3. Save
+
+#### 4. Verify Setup
+
+After configuration, users logging in will see:
+- "Authorize [Your GitHub App Name]" screen
+- Shows as **GitHub App** in `github.com/settings/apps/authorizations`
+- NOT as OAuth App in `github.com/settings/applications`
+
+### Example Configuration (Development)
+
+| Setting | Value |
+|---------|-------|
+| GitHub App Name | `cmux-local-dev` |
+| Client ID | `Iv23liCMo25yNthl3LRn` |
+| Stack Auth Callback | `https://api.stack-auth.com/api/v1/auth/oauth/callback/github` |
+| App Callback | `https://YOUR-DOMAIN/github_setup` |
+
+### Troubleshooting Stack Auth + GitHub App
+
+#### "redirect_uri mismatch" error
+- Ensure Stack Auth callback URL is added to GitHub App's callback URLs
+- URL must be exactly: `https://api.stack-auth.com/api/v1/auth/oauth/callback/github`
+
+#### Still seeing OAuth App authorization
+- Check Stack Auth GitHub SSO Client ID starts with `Iv23li...` not `Ov23li...`
+- Regenerate Client Secret if needed
+
+#### User accounts not linking
+- Stack Auth will migrate existing OAuth connections when you change credentials
+- Users may need to re-authorize if issues persist

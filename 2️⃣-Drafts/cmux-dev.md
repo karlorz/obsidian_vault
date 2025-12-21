@@ -65,6 +65,53 @@ This script validates the connection and lists repositories accessible through t
 - The GitHub App must be installed on your test repositories to work properly
 - All four variables are required for the GitHub integration to function correctly
 
+---
+
+## Stack Auth Integration (Optional - for GitHub App Login)
+
+> [!info] Added 2025-12-21
+> If you want user login to use your GitHub App (matching upstream production), additional setup is required.
+
+### Why This Matters
+
+cmux has **two separate GitHub integrations**:
+1. **Repository Access** - Uses GitHub App for repo installation (configured above)
+2. **User Login** - Uses Stack Auth, which can use either OAuth App OR GitHub App
+
+Upstream production uses **GitHub App** for both. By default, Stack Auth uses its shared OAuth credentials.
+
+### Configure GitHub App for Stack Auth Login
+
+#### 1. Add Stack Auth Callback URL
+
+In your GitHub App settings, add this callback URL:
+```
+https://api.stack-auth.com/api/v1/auth/oauth/callback/github
+```
+
+#### 2. Generate Client Secret
+
+In GitHub App settings → "Client secrets" → "Generate a new client secret"
+
+**Save this immediately** - you won't see it again.
+
+#### 3. Update Stack Auth
+
+Go to your Stack Auth project → Auth Methods → GitHub → Configure:
+
+| Field | Value |
+|-------|-------|
+| Client ID | Your GitHub App's `Iv23li...` ID |
+| Client Secret | The secret you generated |
+
+### Verification
+
+After setup, users logging in will see authorization for your **GitHub App** (shows in `github.com/settings/apps/authorizations`) instead of an OAuth App (shows in `github.com/settings/applications`).
+
+See [[github app.md#Stack Auth Integration]] for detailed instructions.
+
+---
+
 Wiki pages you might want to explore:
 - [External Integrations (manaflow-ai/cmux)](/wiki/manaflow-ai/cmux#10)
 - [Environment and Repository Management (manaflow-ai/cmux)](/wiki/manaflow-ai/cmux#7.3)
