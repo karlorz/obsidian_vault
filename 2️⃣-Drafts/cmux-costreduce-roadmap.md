@@ -10,7 +10,7 @@
 
 | Priority | Service | Current | Alternative | Est. Alt Cost | Savings | Risks | Code Changes |
 |----------|---------|---------|-------------|---------------|---------|-------|--------------|
-| 1 | Morph Sandboxes | $$$$ (~$200-500/mo) | Proxmox VE/LXC, K8s, Local Docker | $50-300/mo | 70-90% | High setup; ensure port/snapshot parity | Medium-High |
+| 1 | Morph Sandboxes | $$$$ (~$200-500/mo) | **Multi-Provider**: Proxmox (primary) + Morph (fallback) | $50-300/mo | 70-90% | Setup complexity; RAM snapshot parity | Medium-High |
 | 2 | AI Provider APIs | $$$ (token-heavy) | OpenRouter, Together AI, Ollama/vLLM | $0-150/mo | 60-95% | Model quality drop with locals; latency | Low |
 | 3 | Convex Database | $$ | Self-host Docker (already supported) | $20-60/mo | 60-80% | Data migration; real-time sync testing | Minimal |
 | 4 | Edge Router | $ | Nginx/Caddy, Traefik | $10-30/mo | 50-70% | WebSocket support for VNC/CDP | Medium |
@@ -33,34 +33,255 @@
 
 **Self-Host Alternatives (Evaluated Dec 2025)**:
 
-| Option | Isolation | Startup | Self-Deploy Ease | Est. Cost | Recommendation |
-|--------|-----------|---------|------------------|-----------|----------------|
-| **microsandbox** (RECOMMENDED) | MicroVM (libkrun) | <200ms | High - single binary | $20-100/mo | Best fit for cmux |
-| **e2b self-hosted** | MicroVM (Firecracker) | ~150ms | Medium - Terraform | $50-150/mo | Good if need SaaS fallback |
-| **Daytona** | Container (OCI) | <90ms | High - good docs | $30-100/mo | AGPL license concern |
-| **Kata Containers** | MicroVM + Container | ~200ms | Medium - needs K8s | $50-200/mo | Enterprise-grade |
-| Proxmox VE/LXC | Container (LXC) | ~100ms | Medium - setup work | $50-200/mo | Fallback option |
-| Local Docker | Container | <50ms | High | $0 (dev only) | Dev/testing only |
+> **CRITICAL REQUIREMENT: RAM Snapshot / VM Suspend-Resume**
+> Morph Cloud's RAM snapshot capability is essential for cmux workflows - preserving running processes, loaded variables, and memory state across pause/resume cycles. Any replacement MUST support this.
 
-**Why microsandbox is the top choice:**
-1. **Self-hosted by design** - No SaaS dependency, Apache-2.0 license (no AGPL concerns)
-2. **MicroVM security** - Hardware-level isolation via libkrun, not just container namespaces
-3. **Fast startup** - Sub-200ms comparable to Morph's performance
-4. **Persistent project mode** - `msr` command maps to cmux's need for stateful dev environments
-5. **Simple architecture** - Single `msb` server binary + SDK clients (Python, JS, Rust)
-6. **New but promising** - Launched May 2025, ~3.3k GitHub stars, active development
+| Option | Isolation | Startup | RAM Snapshot | Self-Deploy | Est. Cost | Recommendation |
+|--------|-----------|---------|--------------|-------------|-----------|----------------|
+| **Proxmox VE/LXC + CRIU** | Container (LXC) | ~100ms | **Yes (CRIU checkpoint)** | Medium | $50-200/mo | **PRIMARY - best balance** |
+| **Proxmox VE/VM** | Full VM (KVM) | ~2-5s | **Yes (QEMU snapshot)** | Medium | $50-200/mo | Alternative if CRIU issues |
+| **Morph Cloud** | MicroVM | ~10-20s | **Yes (native)** | N/A (SaaS) | $200-500/mo | **FALLBACK - keep enabled** |
+| Local Docker | Container | <50ms | No (CRIU possible) | High | $0 (dev only) | Dev/testing only |
 
-**Security Trade-off Context** (from sandboxing research):
+> **Note**: e2b, microsandbox, Daytona evaluated but not in implementation plan. See Appendix for comparison.
+
+---
+
+### RAM Snapshot Support Comparison (CRITICAL)
+
+| Platform | RAM Snapshot Method | Process Resume | API Support |
+|----------|---------------------|----------------|-------------|
+| **Morph Cloud** | Native VM snapshot | **Yes** | `pause()` / `resume()` |
+| **Proxmox VM (KVM)** | QEMU live snapshot | **Yes** | `qm snapshot` / `qm rollback` |
+| **Proxmox LXC + CRIU** | CRIU checkpoint | **Yes** | `pct checkpoint` / `pct restore` |
+| **e2b** | Firecracker snapshot | **Yes** | `betaPause()` / `connect()` |
+| microsandbox | None | **No** | start/stop only |
+| Docker + CRIU | CRIU checkpoint | **Yes** | `docker checkpoint` |
+
+---
+
+### Option A: Proxmox LXC + CRIU (RECOMMENDED for Self-Host)
+
+**Why Proxmox LXC + CRIU is the best self-hosted choice:**
+1. **RAM snapshot via CRIU** - Checkpoint/Restore In Userspace preserves full process state
+2. **Mature & battle-tested** - You have good experience with Proxmox
+3. **Container-like startup** - ~100ms with LXC (faster than full VM)
+4. **Full Linux compatibility** - No compatibility issues like gVisor
+5. **Cost effective** - Hetzner/DO VPS $20-50/mo
+6. **Rich API** - Proxmox REST API for automation
+
+**CRIU Checkpoint Example:**
+```bash
+# Checkpoint running LXC container (saves RAM + process state)
+pct checkpoint <vmid> --state-file /path/to/checkpoint
+
+# Restore from checkpoint (resumes all processes)
+pct restore <vmid> --state-file /path/to/checkpoint
+```
+
+**Proxmox API for cmux integration:**
+```typescript
+// packages/shared/src/sandbox-providers/proxmox.ts
+export class ProxmoxProvider implements SandboxProvider {
+  async pauseInstance(id: string): Promise<void> {
+    // CRIU checkpoint - preserves RAM state
+    await this.api.post(`/nodes/${node}/lxc/${id}/checkpoint`, {
+      stateFile: `/var/lib/cmux/checkpoints/${id}.criu`
+    });
+  }
+
+  async resumeInstance(id: string): Promise<void> {
+    // CRIU restore - resumes all processes
+    await this.api.post(`/nodes/${node}/lxc/${id}/restore`, {
+      stateFile: `/var/lib/cmux/checkpoints/${id}.criu`
+    });
+  }
+}
+```
+
+---
+
+### Resilient Multi-Provider Architecture
+
+> **Design Goal**: Keep Morph as original provider, add Proxmox as self-hosted replacement, support fallback and hybrid routing.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    SandboxProviderManager                           │
+│  ┌───────────────────────────────────────────────────────────────┐  │
+│  │  Routing Strategy:                                            │  │
+│  │  - primary: "proxmox" | "morph"                               │  │
+│  │  - fallback: ["morph"]                                        │  │
+│  │  - workloadRouting: { dev: "proxmox", prod: "morph" }         │  │
+│  └───────────────────────────────────────────────────────────────┘  │
+│                              │                                      │
+│              ┌───────────────┴───────────────┐                      │
+│              ▼                               ▼                      │
+│       ┌─────────────┐                 ┌─────────────┐               │
+│       │MorphProvider│                 │ProxmoxProv. │               │
+│       │ (original)  │                 │ (CRIU)      │               │
+│       └─────────────┘                 └─────────────┘               │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Provider Interface (unified for all providers):**
+```typescript
+// packages/shared/src/sandbox-providers/types.ts
+export interface SandboxProvider {
+  readonly name: string;
+  readonly supportsRamSnapshot: boolean;
+
+  // Lifecycle
+  startInstance(config: SandboxConfig): Promise<SandboxInstance>;
+  stopInstance(id: string): Promise<void>;
+
+  // RAM Snapshot (CRITICAL)
+  pauseInstance(id: string): Promise<void>;   // Save RAM state
+  resumeInstance(id: string): Promise<void>;  // Restore RAM state
+
+  // Status
+  getInstanceStatus(id: string): Promise<SandboxStatus>;
+  listInstances(): Promise<SandboxInstance[]>;
+
+  // Health check for fallback
+  healthCheck(): Promise<boolean>;
+}
+
+export interface SandboxConfig {
+  preset: string;
+  workloadType?: "dev" | "prod" | "ephemeral";
+  preferredProvider?: string;  // Override routing
+}
+```
+
+**Multi-Provider Manager with Fallback:**
+```typescript
+// packages/shared/src/sandbox-providers/manager.ts
+export class SandboxProviderManager {
+  private providers: Map<string, SandboxProvider> = new Map();
+  private config: ProviderConfig;
+
+  constructor(config: ProviderConfig) {
+    this.config = config;
+
+    // Register available providers (Proxmox + Morph only)
+    if (config.morph?.enabled) {
+      this.providers.set("morph", new MorphProvider(config.morph));
+    }
+    if (config.proxmox?.enabled) {
+      this.providers.set("proxmox", new ProxmoxProvider(config.proxmox));
+    }
+  }
+
+  async getProvider(config: SandboxConfig): Promise<SandboxProvider> {
+    // 1. Check explicit override
+    if (config.preferredProvider) {
+      const provider = this.providers.get(config.preferredProvider);
+      if (provider && await provider.healthCheck()) {
+        return provider;
+      }
+    }
+
+    // 2. Route by workload type
+    const routedProvider = this.config.workloadRouting?.[config.workloadType];
+    if (routedProvider) {
+      const provider = this.providers.get(routedProvider);
+      if (provider && await provider.healthCheck()) {
+        return provider;
+      }
+    }
+
+    // 3. Try primary provider
+    const primary = this.providers.get(this.config.primary);
+    if (primary && await primary.healthCheck()) {
+      return primary;
+    }
+
+    // 4. Fallback chain
+    for (const fallbackName of this.config.fallback) {
+      const fallback = this.providers.get(fallbackName);
+      if (fallback && await fallback.healthCheck()) {
+        console.warn(`Primary provider unavailable, using fallback: ${fallbackName}`);
+        return fallback;
+      }
+    }
+
+    throw new Error("No healthy sandbox provider available");
+  }
+
+  // Unified API - delegates to appropriate provider
+  async startInstance(config: SandboxConfig): Promise<SandboxInstance> {
+    const provider = await this.getProvider(config);
+    const instance = await provider.startInstance(config);
+    return { ...instance, provider: provider.name };
+  }
+
+  async pauseInstance(id: string, provider?: string): Promise<void> {
+    const p = this.providers.get(provider || this.getProviderForInstance(id));
+    if (!p?.supportsRamSnapshot) {
+      throw new Error(`Provider ${p?.name} does not support RAM snapshots`);
+    }
+    await p.pauseInstance(id);
+  }
+}
+```
+
+**Environment Configuration:**
+```env
+# Primary provider (recommended: proxmox for self-host with RAM snapshot)
+SANDBOX_PRIMARY_PROVIDER=proxmox
+
+# Fallback chain (Morph as reliable fallback)
+SANDBOX_FALLBACK_PROVIDERS=morph
+
+# Workload routing (optional)
+SANDBOX_ROUTE_DEV=proxmox
+SANDBOX_ROUTE_PROD=morph
+
+# Provider-specific configs
+# Morph (original - keep as fallback)
+MORPH_API_KEY=xxx
+MORPH_ENABLED=true
+
+# Proxmox (self-hosted replacement with CRIU)
+PROXMOX_API_URL=https://proxmox.internal:8006
+PROXMOX_API_TOKEN=xxx
+PROXMOX_NODE=pve1
+PROXMOX_ENABLED=true
+```
+
+**Migration Strategy (Proxmox + Morph):**
+```
+Phase 1: Morph only (current)
+  SANDBOX_PRIMARY_PROVIDER=morph
+  SANDBOX_FALLBACK_PROVIDERS=
+
+Phase 2: Proxmox primary, Morph fallback
+  SANDBOX_PRIMARY_PROVIDER=proxmox
+  SANDBOX_FALLBACK_PROVIDERS=morph
+  SANDBOX_ROUTE_PROD=morph  # Keep prod on Morph initially
+
+Phase 3: Proxmox for all, Morph for emergency
+  SANDBOX_PRIMARY_PROVIDER=proxmox
+  SANDBOX_FALLBACK_PROVIDERS=morph
+  SANDBOX_ROUTE_PROD=proxmox
+
+Phase 4: Proxmox primary + Morph resilience (final state)
+  SANDBOX_PRIMARY_PROVIDER=proxmox
+  SANDBOX_FALLBACK_PROVIDERS=morph  # Keep forever for resilience
+```
+
+**Security Note** (from sandboxing research):
 - Containers share kernel = potential escape vulnerabilities (69% of incidents are misconfigs)
-- MicroVMs (microsandbox, e2b, Firecracker) provide hardware-enforced isolation
-- For untrusted agent code execution, MicroVM isolation is strongly preferred
+- LXC with proper seccomp/AppArmor provides strong isolation for trusted environments
+- For untrusted code requiring MicroVM isolation, see comparison table in Appendix
 
 **Improvements**:
-- **Primary**: Implement microsandbox provider for self-hosted production
-- **Hybrid approach**: Morph for edge cases/bursts, microsandbox for 80%+ workloads
-- Target startup latency: <200ms (microsandbox matches this)
-- Create `SandboxProvider` abstraction layer for future provider switches
-- For RAM snapshots: Use microsandbox persistent `./menv` dirs instead
+- **Primary**: Implement Proxmox provider with CRIU for self-hosted production
+- **Hybrid approach**: Proxmox primary + Morph fallback for resilience
+- Target startup latency: <200ms with LXC (CRIU restore ~100-500ms)
+- Create `SandboxProvider` abstraction layer supporting Proxmox + Morph
+- RAM snapshots: CRIU checkpoint/restore for full process state preservation
 
 **Code Changes Required**: Medium-High (API integration + provider abstraction)
 
@@ -243,16 +464,17 @@ server {
 | 2.1 | Set up local AI (Ollama + DeepSeek/Qwen models) | - | [ ] |
 | 2.2 | Implement hybrid AI routing (local simple, cloud complex) | - | [ ] |
 | 2.3 | Replace edge router with Nginx/Caddy; test WebSockets/CORS | - | [ ] |
-| 2.4 | **Deploy microsandbox server** on Hetzner VPS; benchmark latency | - | [ ] |
+| 2.4 | **Deploy Proxmox VE** on Hetzner VPS; configure LXC + CRIU | - | [ ] |
 | 2.5 | Create `SandboxProvider` abstraction layer in cmux | - | [ ] |
+| 2.6 | Test CRIU checkpoint/restore with cmux services | - | [ ] |
 
 ### Phase 3: Core Migrations (6-10 weeks)
 | Step | Task | Owner | Status |
 |------|------|-------|--------|
-| 3.1 | Implement `MicrosandboxProvider` with full API parity | - | [ ] |
-| 3.2 | Create cmux base image for microsandbox (all services) | - | [ ] |
-| 3.3 | Migrate 20% -> 50% of sandbox workloads to microsandbox | - | [ ] |
-| 3.4 | Test persistent mode (`msr`) for stateful dev environments | - | [ ] |
+| 3.1 | Implement `ProxmoxProvider` with CRIU pause/resume API parity | - | [ ] |
+| 3.2 | Create cmux base LXC template (all services pre-installed) | - | [ ] |
+| 3.3 | Test RAM snapshot: verify running processes resume correctly | - | [ ] |
+| 3.4 | Migrate 20% -> 50% of sandbox workloads to Proxmox | - | [ ] |
 | 3.5 | Optimize frontend/backend hosting (Cloudflare Pages + VPS) | - | [ ] |
 
 ### Phase 4: Full Optimization & Monitoring (10-12 weeks)
@@ -494,10 +716,12 @@ if (process.env.OLLAMA_BASE_URL) {
 | Local LLM quality drop | Hybrid strategy; cloud fallback for complex tasks |
 | Data migration issues | Use staging env; rollback plans; Convex export/import |
 | WebSocket edge router bugs | Thorough testing; keep Cloudflare DNS as fallback |
-| microsandbox is new (May 2025) | Hybrid approach: keep Morph for production bursts; gradual migration |
-| microsandbox lacks RAM snapshots | Use persistent `./menv` dirs; test if workflow acceptable |
-| KVM not available on VPS | Verify KVM support before purchasing; Hetzner/DO both support |
-| microsandbox networking complexity | Test port mapping 39377-39381 in staging first |
+| **RAM snapshot is CRITICAL** | Only use Proxmox (CRIU) as primary + Morph as fallback |
+| CRIU compatibility issues | Test CRIU with all cmux services; some apps may not checkpoint cleanly |
+| Proxmox setup complexity | Leverage existing Proxmox experience; use Ansible/Terraform for automation |
+| KVM not available on VPS | Verify KVM support before purchasing; Hetzner/DO both support nested virt |
+| Proxmox CRIU restore latency | Test restore times; may be 100-500ms vs Morph's instant resume |
+| Network interruption on restore | Clients need reconnect logic after CRIU restore; test WebSocket reconnection |
 
 ---
 
@@ -508,7 +732,13 @@ if (process.env.OLLAMA_BASE_URL) {
 3. **Use staging environments** for all migrations; maintain rollback capability
 4. **Integrate monitoring early** (Prometheus/Grafana + Sentry) for real-time cost tracking
 5. **Review ROI monthly** and adjust priorities based on actual savings
-6. **For sandbox migration**: Prioritize microsandbox over Proxmox for easier self-deploy + MicroVM security
+6. **For sandbox migration**: **Proxmox LXC + CRIU as primary**, Morph as fallback - leverages your experience, supports RAM snapshots (CRITICAL)
+
+**Sandbox Provider Architecture (Proxmox + Morph):**
+1. **Primary: Proxmox LXC + CRIU** - Self-host, your experience, CRIU provides RAM state
+2. **Fallback: Morph Cloud** - Keep enabled forever for resilience, automatic failover
+
+**Key Benefit**: Never fully dependent on one provider - graceful degradation if Proxmox fails, Morph as proven reliable fallback
 
 **Total Potential Savings: 70-85% ($300/mo target from current $1000-2000/mo)**
 
@@ -518,36 +748,48 @@ if (process.env.OLLAMA_BASE_URL) {
 
 ### Technology Spectrum
 
-| Technology | Isolation Level | Startup | Security | Compatibility |
-|------------|-----------------|---------|----------|---------------|
-| V8 Isolates | Runtime | ~1ms | Low | JS only |
-| WebAssembly | Runtime | ~10ms | Medium | WASM modules |
-| Docker/OCI | Namespace | ~10-50ms | Medium | Full Linux |
-| gVisor | App Kernel | ~100ms | High | Linux subset |
-| nsjail | Process | ~50ms | Medium-High | Filtered syscalls |
-| **Firecracker** | MicroVM | ~125ms | **Very High** | Full Linux |
-| **libkrun** | MicroVM | ~container | **Very High** | Full Linux |
+| Technology | Isolation Level | Startup | Security | RAM Snapshot | Compatibility |
+|------------|-----------------|---------|----------|--------------|---------------|
+| V8 Isolates | Runtime | ~1ms | Low | No | JS only |
+| WebAssembly | Runtime | ~10ms | Medium | No | WASM modules |
+| Docker/OCI | Namespace | ~10-50ms | Medium | **CRIU** | Full Linux |
+| **LXC + CRIU** | Container | ~100ms | Medium | **Yes** | Full Linux |
+| gVisor | App Kernel | ~100ms | High | No | Linux subset |
+| nsjail | Process | ~50ms | Medium-High | No | Filtered syscalls |
+| **Firecracker** | MicroVM | ~125ms | **Very High** | **Yes** | Full Linux |
+| **libkrun** | MicroVM | ~container | **Very High** | **No** | Full Linux |
+| **KVM/QEMU** | Full VM | ~2-5s | **Very High** | **Yes** | Full Linux |
 
-### Platform Comparison for cmux Use Case
+### Platform Comparison for cmux Use Case (RAM Snapshot = CRITICAL)
 
-| Platform | Technology | Self-Host | License | cmux Fit |
-|----------|------------|-----------|---------|----------|
-| **microsandbox** | libkrun MicroVM | Primary | Apache-2.0 | Excellent |
-| **e2b** | Firecracker | Yes (GCP/AWS) | Apache-2.0 | Good |
-| Daytona | Containers | Yes | AGPL-3.0 | Good (license concern) |
-| Kata Containers | MicroVM | Yes | Apache-2.0 | Good (K8s overhead) |
-| Fly.io | Firecracker | No (SaaS only) | Proprietary | N/A |
-| Cloudflare Workers | V8 Isolates | No | Proprietary | N/A (JS only) |
+| Platform | Technology | RAM Snapshot | Self-Host | License | cmux Fit |
+|----------|------------|--------------|-----------|---------|----------|
+| **Proxmox LXC+CRIU** | LXC + CRIU | **Yes** | Yes | AGPL-3.0 | **Excellent** |
+| **Proxmox VM** | KVM/QEMU | **Yes** | Yes | AGPL-3.0 | **Excellent** |
+| **e2b** | Firecracker | **Yes** | Yes (GCP/AWS) | Apache-2.0 | **Good** |
+| microsandbox | libkrun MicroVM | **No** | Yes | Apache-2.0 | Dev only |
+| Daytona | Containers | No | Yes | AGPL-3.0 | Not recommended |
+| Docker + CRIU | Docker | **Yes** | Yes | Apache-2.0 | Possible |
 
-### Key Insight: Security vs Performance Trade-off
+### Key Insight: RAM Snapshot is CRITICAL for cmux
 
-For cmux (running untrusted agent code):
-- **Container isolation is insufficient** - 94% of orgs report container security incidents
-- **MicroVM provides hardware-enforced boundaries** - dedicated kernel per sandbox
-- **microsandbox/e2b offer MicroVM with container-like startup** (<200ms)
+For cmux workflows requiring Morph-like behavior:
+- **RAM snapshot preserves running processes** - coding agents, dev servers, loaded variables
+- **Without RAM snapshot**: stop = terminate all processes, lose in-memory state
+- **Solutions with RAM snapshot**: Proxmox (CRIU/QEMU), e2b (Firecracker), Morph
+- **Solutions WITHOUT**: microsandbox, Daytona, basic Docker
+
+### e2b Pause/Resume API (from Context7 docs)
+```javascript
+// e2b native pause/resume - preserves FULL memory state
+const sbx = await Sandbox.create()
+await sbx.betaPause()           // Saves RAM + filesystem
+const sameSbx = await sbx.connect()  // Restores everything
+```
 
 ### References
-- [microsandbox GitHub](https://github.com/microsandbox/microsandbox)
+- [Proxmox VE](https://www.proxmox.com/en/proxmox-ve)
+- [CRIU - Checkpoint/Restore In Userspace](https://criu.org/)
 - [e2b GitHub](https://github.com/e2b-dev/E2B)
 - [Firecracker](https://firecracker-microvm.github.io/)
-- [libkrun](https://github.com/containers/libkrun)
+- [microsandbox GitHub](https://github.com/microsandbox/microsandbox) (no RAM snapshot)
