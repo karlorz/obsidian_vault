@@ -31,23 +31,38 @@
 - Snapshot management for different presets
 - **Est. Cost**: $200-500+/mo for 5-10 concurrent sandboxes @ $0.05-0.10/hour
 
-**Self-Host Alternatives**:
-| Option | Pros | Cons | Est. Cost |
-|--------|------|------|-----------|
-| Proxmox VE/LXC (preferred) | Lightweight, snapshot support, mature | Setup complexity | $50-200/mo (Hetzner/DigitalOcean) |
-| Local Docker | Zero cost, fast iteration | Single machine, no persistence | $0 (dev only) |
-| Kubernetes (EKS/GKE) | Scalable, enterprise-ready | Expensive, complex | $100-300/mo |
-| Bare metal | Full control, best performance | High upfront, maintenance | $100-500/mo |
+**Self-Host Alternatives (Evaluated Dec 2025)**:
+
+| Option | Isolation | Startup | Self-Deploy Ease | Est. Cost | Recommendation |
+|--------|-----------|---------|------------------|-----------|----------------|
+| **microsandbox** (RECOMMENDED) | MicroVM (libkrun) | <200ms | High - single binary | $20-100/mo | Best fit for cmux |
+| **e2b self-hosted** | MicroVM (Firecracker) | ~150ms | Medium - Terraform | $50-150/mo | Good if need SaaS fallback |
+| **Daytona** | Container (OCI) | <90ms | High - good docs | $30-100/mo | AGPL license concern |
+| **Kata Containers** | MicroVM + Container | ~200ms | Medium - needs K8s | $50-200/mo | Enterprise-grade |
+| Proxmox VE/LXC | Container (LXC) | ~100ms | Medium - setup work | $50-200/mo | Fallback option |
+| Local Docker | Container | <50ms | High | $0 (dev only) | Dev/testing only |
+
+**Why microsandbox is the top choice:**
+1. **Self-hosted by design** - No SaaS dependency, Apache-2.0 license (no AGPL concerns)
+2. **MicroVM security** - Hardware-level isolation via libkrun, not just container namespaces
+3. **Fast startup** - Sub-200ms comparable to Morph's performance
+4. **Persistent project mode** - `msr` command maps to cmux's need for stateful dev environments
+5. **Simple architecture** - Single `msb` server binary + SDK clients (Python, JS, Rust)
+6. **New but promising** - Launched May 2025, ~3.3k GitHub stars, active development
+
+**Security Trade-off Context** (from sandboxing research):
+- Containers share kernel = potential escape vulnerabilities (69% of incidents are misconfigs)
+- MicroVMs (microsandbox, e2b, Firecracker) provide hardware-enforced isolation
+- For untrusted agent code execution, MicroVM isolation is strongly preferred
 
 **Improvements**:
-- Prioritize LXC over full VMs for lighter overhead
-- Use Hetzner ($20-50/mo) or DigitalOcean for cheap Proxmox hosts
-- For RAM snapshots: Use Proxmox live migration or CRIU checkpointing
-- Hybrid approach: Morph for production bursts, local Docker for 80% dev work
-- Target startup latency: <30s (Morph is ~10-20s; use pre-warmed templates)
-- Wrap Proxmox API in abstraction layer for future provider switches
+- **Primary**: Implement microsandbox provider for self-hosted production
+- **Hybrid approach**: Morph for edge cases/bursts, microsandbox for 80%+ workloads
+- Target startup latency: <200ms (microsandbox matches this)
+- Create `SandboxProvider` abstraction layer for future provider switches
+- For RAM snapshots: Use microsandbox persistent `./menv` dirs instead
 
-**Code Changes Required**: Medium-High (API integration)
+**Code Changes Required**: Medium-High (API integration + provider abstraction)
 
 ---
 
@@ -61,6 +76,7 @@
 **Why High Cost**: Coding agents consume massive tokens per session (context windows, multi-turn conversations, code generation)
 
 **Third-Party API Proxies (Claude/OpenAI Compatible)**:
+
 | Provider | Claude Support | OpenAI Compat | Pricing | Notes |
 |----------|---------------|---------------|---------|-------|
 | OpenRouter | Yes | Yes | 10-30% cheaper | Multi-provider routing |
@@ -140,6 +156,7 @@ services:
 - Loop prevention with `X-Cmux-*` headers
 
 **Self-Host Alternatives**:
+
 | Option | WebSocket Support | Complexity | Notes |
 |--------|-------------------|------------|-------|
 | Nginx + Lua | Yes (with module) | Medium | Most mature |
@@ -226,15 +243,17 @@ server {
 | 2.1 | Set up local AI (Ollama + DeepSeek/Qwen models) | - | [ ] |
 | 2.2 | Implement hybrid AI routing (local simple, cloud complex) | - | [ ] |
 | 2.3 | Replace edge router with Nginx/Caddy; test WebSockets/CORS | - | [ ] |
-| 2.4 | Prototype Morph alternative (Proxmox template); benchmark latency | - | [ ] |
+| 2.4 | **Deploy microsandbox server** on Hetzner VPS; benchmark latency | - | [ ] |
+| 2.5 | Create `SandboxProvider` abstraction layer in cmux | - | [ ] |
 
 ### Phase 3: Core Migrations (6-10 weeks)
 | Step | Task | Owner | Status |
 |------|------|-------|--------|
-| 3.1 | Fully integrate Proxmox API for sandboxes | - | [ ] |
-| 3.2 | Migrate 50% of sandbox workloads to Proxmox | - | [ ] |
-| 3.3 | Implement custom snapshot system if RAM snapshots critical | - | [ ] |
-| 3.4 | Optimize frontend/backend hosting (Cloudflare Pages + VPS) | - | [ ] |
+| 3.1 | Implement `MicrosandboxProvider` with full API parity | - | [ ] |
+| 3.2 | Create cmux base image for microsandbox (all services) | - | [ ] |
+| 3.3 | Migrate 20% -> 50% of sandbox workloads to microsandbox | - | [ ] |
+| 3.4 | Test persistent mode (`msr`) for stateful dev environments | - | [ ] |
+| 3.5 | Optimize frontend/backend hosting (Cloudflare Pages + VPS) | - | [ ] |
 
 ### Phase 4: Full Optimization & Monitoring (10-12 weeks)
 | Step | Task | Owner | Status |
@@ -248,9 +267,9 @@ server {
 
 ## Detailed Implementation Notes
 
-### Morph Replacement with Proxmox LXC
+### Morph Replacement with microsandbox (Primary) or Proxmox LXC (Fallback)
 
-**Services to replicate inside each container:**
+**Services to replicate inside each sandbox:**
 1. `cmux-openvscode.service` - Web-based VS Code (port 39378)
 2. `cmux-worker.service` - Core cmux worker
 3. `cmux-proxy.service` - Proxy service (port 39379)
@@ -268,6 +287,84 @@ server {
 - `scripts/morph_dockerfile.py` - Dockerfile-to-Morph translation
 - `packages/shared/src/morph-snapshots.json` - Snapshot manifest
 
+---
+
+#### Option A: microsandbox Implementation (RECOMMENDED)
+
+**Why microsandbox over Proxmox:**
+- MicroVM isolation (hardware-level) vs LXC (container namespace)
+- Simpler deployment: single `msb` binary vs Proxmox cluster setup
+- Built-in persistent project mode (`msr`) vs manual LXC snapshot management
+- Apache-2.0 license, purpose-built for code sandboxing
+
+**microsandbox Architecture:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Host Server (Hetzner/DigitalOcean $20-50/mo)              │
+│  ├─ msb server (microsandbox daemon)                       │
+│  │   ├─ libkrun (MicroVM hypervisor)                       │
+│  │   └─ Networking (port mapping 39377-39381)              │
+│  └─ ./menv/ (persistent sandbox filesystems)               │
+└─────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  MicroVM Sandbox Instance                                   │
+│  ├─ cmux-openvscode.service (port 39378)                   │
+│  ├─ cmux-worker.service (port 39377)                       │
+│  ├─ cmux-proxy.service (port 39379)                        │
+│  ├─ cmux-tigervnc.service (port 39380)                     │
+│  └─ cmux-cdp-proxy.service (port 39381)                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**microsandbox Implementation Steps:**
+1. Deploy `msb` server on Hetzner/DigitalOcean VPS
+   ```bash
+   curl -fsSL https://get.microsandbox.dev | sh
+   msb server start --port 8080
+   ```
+2. Create cmux base image with all services pre-installed
+3. Configure networking for port range 39377-39381
+4. Use `msr` (persistent mode) for stateful dev environments
+5. Use `msx` (ephemeral mode) for one-off agent tasks
+6. Implement `MicrosandboxProvider` in cmux codebase
+
+**microsandbox SDK Integration:**
+```typescript
+// packages/shared/src/sandbox-providers/microsandbox.ts
+import { Sandbox } from "microsandbox";
+
+export class MicrosandboxProvider implements SandboxProvider {
+  async startInstance(config: SandboxConfig): Promise<SandboxInstance> {
+    const sandbox = await Sandbox.create({
+      image: "cmux-base",
+      persistent: config.persistent ?? true,
+      ports: [39377, 39378, 39379, 39380, 39381],
+    });
+    return { id: sandbox.id, ports: sandbox.ports };
+  }
+
+  async stopInstance(id: string): Promise<void> {
+    await Sandbox.stop(id);
+  }
+
+  async pauseInstance(id: string): Promise<void> {
+    // microsandbox: stop preserves state in ./menv
+    await Sandbox.stop(id);
+  }
+}
+```
+
+---
+
+#### Option B: Proxmox LXC Implementation (Fallback)
+
+**Use Proxmox LXC if:**
+- Need more mature/battle-tested infrastructure
+- Already have Proxmox expertise
+- Need true RAM snapshot support (CRIU)
+
 **Proxmox LXC Implementation Steps:**
 1. Create base Ubuntu LXC template
 2. Install dependencies: docker.io, docker-compose, git, curl, node, bun, uv
@@ -277,14 +374,42 @@ server {
 6. Create systemd units mirroring Morph setup
 7. Configure networking (expose ports 39377-39381)
 8. Create template/snapshot from configured container
-9. Modify cmux to spawn LXC via Proxmox API instead of Morph API
+9. Implement `ProxmoxProvider` in cmux codebase
 
-**API Changes Required:**
-- Replace `MorphCloudClient` calls with Proxmox API client
-- Implement `startInstance()`, `stopInstance()`, `pauseInstance()` for Proxmox
-- Map port exposure to Proxmox networking
-- Implement snapshot management for Proxmox
-- **Add abstraction layer** to support multiple providers
+---
+
+#### Provider Abstraction Layer
+
+**Required API Changes:**
+```typescript
+// packages/shared/src/sandbox-providers/types.ts
+export interface SandboxProvider {
+  startInstance(config: SandboxConfig): Promise<SandboxInstance>;
+  stopInstance(id: string): Promise<void>;
+  pauseInstance(id: string): Promise<void>;
+  getInstanceStatus(id: string): Promise<SandboxStatus>;
+  listInstances(): Promise<SandboxInstance[]>;
+}
+
+// packages/shared/src/sandbox-providers/index.ts
+export function getSandboxProvider(): SandboxProvider {
+  const provider = process.env.SANDBOX_PROVIDER || "morph";
+  switch (provider) {
+    case "microsandbox": return new MicrosandboxProvider();
+    case "proxmox": return new ProxmoxProvider();
+    case "docker": return new DockerProvider();
+    case "morph":
+    default: return new MorphProvider();
+  }
+}
+```
+
+**Migration Strategy:**
+1. Create abstraction layer with `MorphProvider` as default
+2. Implement `MicrosandboxProvider` for self-hosted
+3. Test in staging with `SANDBOX_PROVIDER=microsandbox`
+4. Gradual rollout: 20% -> 50% -> 80% of workloads
+5. Keep Morph as fallback for edge cases
 
 ---
 
@@ -354,8 +479,10 @@ if (process.env.OLLAMA_BASE_URL) {
 | Actual Morph spend per month? | Check Morph billing dashboard or API logs | ~$200-500/mo for 5-10 concurrent |
 | How many concurrent sandboxes? | Query Convex `environments` table or server logs | 2-5 per user session typical |
 | WebSocket support needed? | Inspect VNC/OpenVSCode network traffic | Yes (VNC, CDP real-time) |
-| Morph RAM snapshots critical? | Test workflow without; check if CRIU works | Likely replaceable with Proxmox |
-| Latency requirements? | Survey team; measure current Morph startup | Target <1min, ideal <30s |
+| Morph RAM snapshots critical? | Test workflow without; check if CRIU works | microsandbox uses persistent `./menv` dirs instead |
+| Latency requirements? | Survey team; measure current Morph startup | microsandbox: <200ms (meets target) |
+| microsandbox maturity? | Monitor GitHub issues, test in staging | New (May 2025) but active; keep Morph fallback |
+| KVM/hardware virtualization? | Check VPS provider support | Hetzner/DigitalOcean support KVM; verify before purchase |
 
 ---
 
@@ -367,7 +494,10 @@ if (process.env.OLLAMA_BASE_URL) {
 | Local LLM quality drop | Hybrid strategy; cloud fallback for complex tasks |
 | Data migration issues | Use staging env; rollback plans; Convex export/import |
 | WebSocket edge router bugs | Thorough testing; keep Cloudflare DNS as fallback |
-| Morph-specific features missing | Prototype early; keep Morph for edge cases initially |
+| microsandbox is new (May 2025) | Hybrid approach: keep Morph for production bursts; gradual migration |
+| microsandbox lacks RAM snapshots | Use persistent `./menv` dirs; test if workflow acceptable |
+| KVM not available on VPS | Verify KVM support before purchasing; Hetzner/DO both support |
+| microsandbox networking complexity | Test port mapping 39377-39381 in staging first |
 
 ---
 
@@ -378,5 +508,46 @@ if (process.env.OLLAMA_BASE_URL) {
 3. **Use staging environments** for all migrations; maintain rollback capability
 4. **Integrate monitoring early** (Prometheus/Grafana + Sentry) for real-time cost tracking
 5. **Review ROI monthly** and adjust priorities based on actual savings
+6. **For sandbox migration**: Prioritize microsandbox over Proxmox for easier self-deploy + MicroVM security
 
 **Total Potential Savings: 70-85% ($300/mo target from current $1000-2000/mo)**
+
+---
+
+## Appendix: Sandbox Solution Comparison (Dec 2025 Research)
+
+### Technology Spectrum
+
+| Technology | Isolation Level | Startup | Security | Compatibility |
+|------------|-----------------|---------|----------|---------------|
+| V8 Isolates | Runtime | ~1ms | Low | JS only |
+| WebAssembly | Runtime | ~10ms | Medium | WASM modules |
+| Docker/OCI | Namespace | ~10-50ms | Medium | Full Linux |
+| gVisor | App Kernel | ~100ms | High | Linux subset |
+| nsjail | Process | ~50ms | Medium-High | Filtered syscalls |
+| **Firecracker** | MicroVM | ~125ms | **Very High** | Full Linux |
+| **libkrun** | MicroVM | ~container | **Very High** | Full Linux |
+
+### Platform Comparison for cmux Use Case
+
+| Platform | Technology | Self-Host | License | cmux Fit |
+|----------|------------|-----------|---------|----------|
+| **microsandbox** | libkrun MicroVM | Primary | Apache-2.0 | Excellent |
+| **e2b** | Firecracker | Yes (GCP/AWS) | Apache-2.0 | Good |
+| Daytona | Containers | Yes | AGPL-3.0 | Good (license concern) |
+| Kata Containers | MicroVM | Yes | Apache-2.0 | Good (K8s overhead) |
+| Fly.io | Firecracker | No (SaaS only) | Proprietary | N/A |
+| Cloudflare Workers | V8 Isolates | No | Proprietary | N/A (JS only) |
+
+### Key Insight: Security vs Performance Trade-off
+
+For cmux (running untrusted agent code):
+- **Container isolation is insufficient** - 94% of orgs report container security incidents
+- **MicroVM provides hardware-enforced boundaries** - dedicated kernel per sandbox
+- **microsandbox/e2b offer MicroVM with container-like startup** (<200ms)
+
+### References
+- [microsandbox GitHub](https://github.com/microsandbox/microsandbox)
+- [e2b GitHub](https://github.com/e2b-dev/E2B)
+- [Firecracker](https://firecracker-microvm.github.io/)
+- [libkrun](https://github.com/containers/libkrun)
