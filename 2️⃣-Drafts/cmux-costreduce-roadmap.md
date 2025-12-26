@@ -746,50 +746,75 @@ if (process.env.OLLAMA_BASE_URL) {
 
 ## Appendix: Sandbox Solution Comparison (Dec 2025 Research)
 
-### Technology Spectrum
+> **Verified via Context7 documentation lookup**
 
-| Technology | Isolation Level | Startup | Security | RAM Snapshot | Compatibility |
-|------------|-----------------|---------|----------|--------------|---------------|
-| V8 Isolates | Runtime | ~1ms | Low | No | JS only |
-| WebAssembly | Runtime | ~10ms | Medium | No | WASM modules |
-| Docker/OCI | Namespace | ~10-50ms | Medium | **CRIU** | Full Linux |
-| **LXC + CRIU** | Container | ~100ms | Medium | **Yes** | Full Linux |
-| gVisor | App Kernel | ~100ms | High | No | Linux subset |
-| nsjail | Process | ~50ms | Medium-High | No | Filtered syscalls |
-| **Firecracker** | MicroVM | ~125ms | **Very High** | **Yes** | Full Linux |
-| **libkrun** | MicroVM | ~container | **Very High** | **No** | Full Linux |
-| **KVM/QEMU** | Full VM | ~2-5s | **Very High** | **Yes** | Full Linux |
+### Technology Spectrum (RAM Snapshot Support Verified)
 
-### Platform Comparison for cmux Use Case (RAM Snapshot = CRITICAL)
+| Technology | Isolation Level | Startup | Security | RAM Snapshot | Source |
+|------------|-----------------|---------|----------|--------------|--------|
+| V8 Isolates | Runtime | ~1ms | Low | **No** | - |
+| WebAssembly | Runtime | ~10ms | Medium | **No** | - |
+| Docker/OCI | Namespace | ~10-50ms | Medium | **CRIU optional** | - |
+| **LXC + CRIU** | Container | ~100ms | Medium | **Yes** | Proxmox docs |
+| gVisor | App Kernel | ~100ms | High | **No** | - |
+| nsjail | Process | ~50ms | Medium-High | **No** | - |
+| **Firecracker** | MicroVM | ~125ms | Very High | **Yes** | GitHub docs |
+| **libkrun** (microsandbox) | MicroVM | ~200ms | Very High | **No** | Context7 |
+| **KVM/QEMU** | Full VM | ~2-5s | Very High | **Yes** | Proxmox docs |
 
-| Platform | Technology | RAM Snapshot | Self-Host | License | cmux Fit |
-|----------|------------|--------------|-----------|---------|----------|
-| **Proxmox LXC+CRIU** | LXC + CRIU | **Yes** | Yes | AGPL-3.0 | **Excellent** |
-| **Proxmox VM** | KVM/QEMU | **Yes** | Yes | AGPL-3.0 | **Excellent** |
-| **e2b** | Firecracker | **Yes** | Yes (GCP/AWS) | Apache-2.0 | **Good** |
-| microsandbox | libkrun MicroVM | **No** | Yes | Apache-2.0 | Dev only |
-| Daytona | Containers | No | Yes | AGPL-3.0 | Not recommended |
-| Docker + CRIU | Docker | **Yes** | Yes | Apache-2.0 | Possible |
+### Platform Comparison - RAM Snapshot Verified (CRITICAL)
 
-### Key Insight: RAM Snapshot is CRITICAL for cmux
+| Platform | Technology | RAM Snapshot | Verified Source | cmux Fit |
+|----------|------------|--------------|-----------------|----------|
+| **Morph Cloud** | Proprietary | **Yes** | Production use | **Current** |
+| **Proxmox VM** | KVM/QEMU | **Yes** | `qm suspend --todisk` saves memory to disk | **Excellent** |
+| **Proxmox LXC+CRIU** | LXC + CRIU | **Yes** | CRIU checkpoint/restore | **Excellent** |
+| **e2b** | Firecracker | **Yes** | `betaPause()`/`connect()` - full memory file | Good (not in plan) |
+| **Firecracker** | MicroVM | **Yes** | "full copy of guest memory" - verified | Good (not in plan) |
+| **microsandbox** | libkrun | **No** | Only in-session state persistence | **Not suitable** |
+| **Daytona** | Containers | **No** | Filesystem only | **Not suitable** |
+| Docker + CRIU | Docker | **Possible** | Requires CRIU setup | Possible |
 
-For cmux workflows requiring Morph-like behavior:
-- **RAM snapshot preserves running processes** - coding agents, dev servers, loaded variables
-- **Without RAM snapshot**: stop = terminate all processes, lose in-memory state
-- **Solutions with RAM snapshot**: Proxmox (CRIU/QEMU), e2b (Firecracker), Morph
-- **Solutions WITHOUT**: microsandbox, Daytona, basic Docker
+### Verified: Solutions WITHOUT RAM Snapshot (Filtered Out)
 
-### e2b Pause/Resume API (from Context7 docs)
-```javascript
-// e2b native pause/resume - preserves FULL memory state
-const sbx = await Sandbox.create()
-await sbx.betaPause()           // Saves RAM + filesystem
-const sameSbx = await sbx.connect()  // Restores everything
+These solutions **do NOT support snapshotting complete guest memory**:
+
+| Solution | What They DO Support | What They DON'T Support |
+|----------|---------------------|------------------------|
+| **microsandbox** | Filesystem persistence (`./menv`), in-session variable state | RAM snapshot, process resume after stop |
+| **Daytona** | Filesystem archiving, container stop/start | RAM snapshot, running process preservation |
+| **nsjail** | Process isolation, resource limits | Any state persistence |
+| **gVisor** | Container checkpoint (limited) | Full RAM snapshot |
+
+### Verified: Solutions WITH RAM Snapshot (Implementation Candidates)
+
+| Solution | RAM Snapshot Method | Verified By |
+|----------|---------------------|-------------|
+| **Proxmox VM (KVM)** | `qm suspend ID --todisk` - "VM's memory content saved to disk" | Proxmox docs Context7 |
+| **Proxmox LXC + CRIU** | CRIU checkpoint - full process state | Proxmox docs |
+| **e2b** | Firecracker snapshot - "full copy of guest memory" | e2b docs Context7 |
+| **Firecracker (raw)** | Memory-mapped snapshot files | Firecracker GitHub |
+
+### Firecracker Snapshot Capability (from GitHub docs)
+```
+Firecracker snapshots preserve:
+- "the guest memory"
+- "the emulated HW state (both KVM and Firecracker emulated HW)"
+
+Creates "a full copy of the guest memory" during full snapshots.
+Uses MAP_PRIVATE mapping for "very fast snapshot loading times".
+```
+
+### Proxmox VM Suspend (from Context7 docs)
+```shell
+# Suspends VM to disk - memory content saved, VM stopped
+# Upon restart, memory is loaded, VM resumes from previous state
+qm suspend ID --todisk
 ```
 
 ### References
-- [Proxmox VE](https://www.proxmox.com/en/proxmox-ve)
-- [CRIU - Checkpoint/Restore In Userspace](https://criu.org/)
-- [e2b GitHub](https://github.com/e2b-dev/E2B)
-- [Firecracker](https://firecracker-microvm.github.io/)
-- [microsandbox GitHub](https://github.com/microsandbox/microsandbox) (no RAM snapshot)
+- [Proxmox VE Docs](https://pve.proxmox.com/pve-docs/) - verified via Context7
+- [Firecracker Snapshot Support](https://github.com/firecracker-microvm/firecracker/blob/main/docs/snapshotting/snapshot-support.md)
+- [e2b Persistence Docs](https://github.com/e2b-dev/E2B) - verified via Context7
+- [microsandbox](https://github.com/microsandbox/microsandbox) - verified NO RAM snapshot via Context7
+- [CRIU](https://criu.org/) - Checkpoint/Restore In Userspace
