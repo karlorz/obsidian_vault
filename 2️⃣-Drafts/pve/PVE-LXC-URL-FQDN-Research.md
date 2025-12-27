@@ -3,6 +3,7 @@
 > Comparing sandbox providers for cmux production deployment with focus on resilience, ease of deployment, public access, and HTTPS.
 > **Constraint:** PVE v8 behind home router, no port forwarding/DMZ allowed.
 > **Status:** Tested and working with Cloudflare Tunnel (2025-12-27)
+> **PR:** https://github.com/karlorz/cmux/pull/27
 
 ---
 
@@ -67,10 +68,11 @@
 **Important:** Cloudflare's free Universal SSL only covers single-level wildcards (`*.domain.com`), NOT multi-level (`*.sub.domain.com`). For free SSL, use:
 
 ```
-https://vscode-200.yourdomain.com    (works with free SSL)
-https://worker-200.yourdomain.com    (works with free SSL)
-https://xterm-200.yourdomain.com     (works with free SSL)
-https://preview-200.yourdomain.com   (works with free SSL)
+https://vscode-200.yourdomain.com    (works with free SSL) - VSCode Web UI
+https://worker-200.yourdomain.com    (works with free SSL) - Worker service
+https://exec-200.yourdomain.com      (works with free SSL) - cmux-execd HTTP exec
+https://xterm-200.yourdomain.com     (works with free SSL) - Xterm terminal
+https://preview-200.yourdomain.com   (works with free SSL) - Dev server preview
 ```
 
 NOT:
@@ -211,6 +213,12 @@ ingress:
         reverse_proxy cmux-{re.vmid.1}.lan:39376
     }
 
+    # Exec service (cmux-execd HTTP exec daemon)
+    @exec header_regexp vmid Host ^exec-(\d+)\.
+    handle @exec {
+        reverse_proxy cmux-{re.vmid.1}.lan:39375
+    }
+
     # Preview service (port 5173)
     @preview header_regexp vmid Host ^preview-(\d+)\.
     handle @preview {
@@ -291,8 +299,9 @@ For API endpoints or webhooks that need public access:
 │  │  LXC Containers                                          │   │
 │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐               │   │
 │  │  │cmux-200  │  │cmux-201  │  │cmux-202  │               │   │
-│  │  │:39378 vs │  │:39378 vs │  │:39378 vs │               │   │
-│  │  │:39377 wk │  │:39377 wk │  │:39377 wk │               │   │
+│  │  │:39378 vs │  │:39378 vs │  │:39378 vs │  vscode       │   │
+│  │  │:39377 wk │  │:39377 wk │  │:39377 wk │  worker       │   │
+│  │  │:39375 ex │  │:39375 ex │  │:39375 ex │  cmux-execd   │   │
 │  │  └────┬─────┘  └────┬─────┘  └────┬─────┘               │   │
 │  │       └─────────────┼─────────────┘                      │   │
 │  └─────────────────────┼────────────────────────────────────┘   │
@@ -301,7 +310,7 @@ For API endpoints or webhooks that need public access:
 │  │              Caddy (:8080)                               │   │
 │  │  vscode-200.* → cmux-200.lan:39378                      │   │
 │  │  worker-200.* → cmux-200.lan:39377                      │   │
-│  │  vscode-201.* → cmux-201.lan:39378                      │   │
+│  │  exec-200.*   → cmux-200.lan:39375                      │   │
 │  └─────────────────────┬────────────────────────────────────┘   │
 │                        │                                        │
 │  ┌─────────────────────┼────────────────────────────────────┐   │
@@ -519,6 +528,57 @@ PVE_API_TOKEN=cmux@pve!cmux-token=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 ---
 
+## cmux-execd: HTTP Exec Daemon
+
+The `cmux-execd` service runs inside each LXC container and provides HTTP-based command execution. This replaces the need for SSH access and enables command execution via Cloudflare Tunnel.
+
+### Service Details
+
+| Property | Value |
+|----------|-------|
+| **Port** | 39375 |
+| **Protocol** | HTTP |
+| **URL Pattern** | `https://exec-{vmid}.{domain}/exec` |
+| **Systemd Unit** | `cmux-execd.service` |
+
+### API Endpoint
+
+```bash
+# Execute a command
+curl -X POST https://exec-200.alphasolves.com/exec \
+  -H "Content-Type: application/json" \
+  -d '{"command": "echo hello", "cwd": "/workspace"}'
+
+# Response
+{
+  "stdout": "hello\n",
+  "stderr": "",
+  "exitCode": 0
+}
+```
+
+### Key Features
+
+- **No SSH Required**: HTTP-only, no SSH keys or port 22 exposure
+- **Works with CF Tunnel**: Accessible via public URL with SSL
+- **Stateless**: Each request is independent
+- **Timeout Handling**: Configurable command timeouts
+- **Environment Variables**: Supports `HOME=/root` and custom env
+
+### Container Setup
+
+The service is installed during template creation:
+
+```bash
+# Check service status
+pct exec 200 -- systemctl status cmux-execd
+
+# View logs
+pct exec 200 -- journalctl -u cmux-execd -f
+```
+
+---
+
 ## Quick Reference Commands
 
 ```bash
@@ -539,6 +599,11 @@ pct exec 200 -- systemctl status cmux-execd
 
 # Test public URL
 curl -I https://vscode-200.yourdomain.com
+
+# Test exec service via tunnel
+curl -X POST https://exec-200.alphasolves.com/exec \
+  -H "Content-Type: application/json" \
+  -d '{"command": "whoami"}'
 
 # Test PVE API via tunnel
 curl -k https://pve.alphasolves.com/api2/json/version
@@ -564,12 +629,25 @@ curl -k https://pve.alphasolves.com/api2/json/version
 
 ---
 
+## Port Reference
+
+| Service | Port | URL Pattern | Description |
+|---------|------|-------------|-------------|
+| VSCode | 39378 | `vscode-{vmid}.domain` | VSCode Web UI |
+| Worker | 39377 | `worker-{vmid}.domain` | Worker service |
+| Xterm | 39376 | `xterm-{vmid}.domain` | Xterm terminal |
+| Exec | 39375 | `exec-{vmid}.domain` | cmux-execd HTTP exec |
+| Preview | 5173 | `preview-{vmid}.domain` | Dev server preview |
+
+---
+
 ## Related Files
 
 - `apps/www/lib/utils/pve-lxc-client.ts` - PVE LXC client
 - `apps/www/lib/utils/sandbox-instance.ts` - Unified sandbox interface
 - `scripts/snapshot-pvelxc.py` - PVE template builder
 - `scripts/pve/pve-tunnel-setup.sh` - Automated tunnel setup script
+- `scripts/pve/test-pve-cf-tunnel.ts` - Test script for CF tunnel + LXC exec
 
 ## References
 
