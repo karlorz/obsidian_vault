@@ -224,14 +224,14 @@ POST /1.0/instances/{name}/exec
 
 ## Comparison Matrix: PVE LXC Options
 
-| Option | No SSH | No Custom Agent | Works Offline | Complexity | Recommended |
-|--------|--------|-----------------|---------------|------------|-------------|
-| 1. Sidecar Agent | Yes | No | Yes | Low | **Yes** |
-| 2. termproxy WS | Yes | Yes | No | High | No |
-| 3. Perl Plugin | Yes | Yes | Yes | Medium | Maybe |
-| 4. pvesh | Yes | Yes | Local only | Low | No |
-| 5. Incus | Yes | Yes | Yes | Very High | Future |
-| 6. Direct SSH | No | Yes | No | Low | Fallback |
+| Option           | No SSH | No Custom Agent | Works Offline | Complexity | Recommended |
+| ---------------- | ------ | --------------- | ------------- | ---------- | ----------- |
+| 1. Sidecar Agent | Yes    | No              | Yes           | Low        | **Yes**     |
+| 2. termproxy WS  | Yes    | Yes             | No            | High       | No          |
+| 3. Perl Plugin   | Yes    | Yes             | Yes           | Medium     | Maybe       |
+| 4. pvesh         | Yes    | Yes             | Local only    | Low        | No          |
+| 5. Incus         | Yes    | Yes             | Yes           | Very High  | Future      |
+| 6. Direct SSH    | No     | Yes             | No            | Low        | Fallback    |
 
 ---
 
@@ -367,6 +367,73 @@ After extensive searching, **no existing GitHub project** provides a ready-to-de
 **Use case**: Execute command lists across multiple containers.
 
 **Limitation**: CLI/runlist based, not real-time API.
+
+#### 5. Proxmoxer (Python Library)
+**GitHub**: [proxmoxer/proxmoxer](https://github.com/proxmoxer/proxmoxer)
+**PyPI**: `pip install proxmoxer`
+
+**What it does**: Python wrapper around Proxmox REST API v2.
+
+**Backends Supported**:
+- `https` - REST API over HTTPS (default)
+- `ssh_paramiko` - SSH via Paramiko library
+- `openssh` - SSH via openssh_wrapper
+- Direct `pvesh` utility access
+
+**LXC Exec Support**: **NO**
+
+Proxmoxer does NOT provide LXC exec functionality because PVE API doesn't expose it:
+- QEMU VMs: Yes, via `.../agent/exec` (QEMU Guest Agent)
+- LXC Containers: No API endpoint exists
+
+**How to use SSH backend**:
+```python
+from proxmoxer import ProxmoxAPI
+
+# SSH backend - runs pvesh commands over SSH
+proxmox = ProxmoxAPI('pve-host', user='root', backend='ssh_paramiko')
+
+# This does NOT give you pct exec - only API calls via pvesh
+proxmox.nodes('pve').lxc(200).status.current.get()
+```
+
+**To execute commands in LXC via proxmoxer**, you must:
+1. Use SSH backend to connect to PVE host
+2. Manually run `pct exec` via the underlying SSH connection (not exposed by proxmoxer)
+
+**Conclusion**: Proxmoxer wraps the PVE REST API. Since PVE API has no LXC exec endpoint, proxmoxer cannot provide it either. The SSH backend just runs `pvesh` commands, not arbitrary shell commands.
+
+#### 6. Ansible proxmox_pct_remote Connection Plugin
+**Docs**: [community.proxmox.proxmox_pct_remote](https://docs.ansible.com/projects/ansible/latest/collections/community/proxmox/proxmox_pct_remote_connection.html)
+
+**What it does**: Ansible connection plugin that runs tasks in LXC via `pct exec` over SSH.
+
+**How it works**:
+1. SSH to PVE host (via Paramiko)
+2. Run `pct exec <vmid> -- <command>`
+3. Return results to Ansible
+
+**Example**:
+```yaml
+- hosts: my_lxc_container
+  connection: community.proxmox.proxmox_pct_remote
+  vars:
+    ansible_pct_remote_host: pve-host.example.com
+    ansible_pct_remote_vmid: 200
+  tasks:
+    - name: Run command in LXC
+      command: echo "hello from container"
+```
+
+**Pros**:
+- No SSH needed inside container
+- Works with Ansible ecosystem
+- Mature implementation
+
+**Cons**:
+- Slow (Paramiko doesn't support persistent connections)
+- Ansible dependency
+- Still SSH under the hood (to PVE host)
 
 ---
 
