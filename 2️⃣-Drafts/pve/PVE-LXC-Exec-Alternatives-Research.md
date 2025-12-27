@@ -220,6 +220,68 @@ POST /1.0/instances/{name}/exec
 | **Dependencies** | Morph SDK | SSH client on host | Network to container |
 | **Offline Support** | No (cloud API) | Yes (local SSH) | Yes (local HTTP) |
 
+### Architecture Note: Server-Side Exec vs Public Domain Access
+
+**Important**: The `instance.exec()` is a **server-side** operation. The cmux www server (backend) calls the sandbox's exec API to run setup scripts. This is NOT the same as public domain HTTPS access for end users.
+
+```
+                                    ┌─────────────────────────────────────┐
+                                    │           Sandbox/Container          │
+                                    │                                      │
+┌──────────────┐                    │  ┌─────────────┐  ┌──────────────┐  │
+│  cmux www    │──── exec() ───────▶│  │ cmux-pty    │  │  VSCode      │  │
+│  (backend)   │    (server-side)   │  │ :39383      │  │  :39378      │  │
+└──────────────┘                    │  └─────────────┘  └──────────────┘  │
+                                    │         ▲                ▲          │
+                                    │         │                │          │
+                                    │         │ HTTP           │ HTTPS    │
+                                    │         │ (internal)     │ (public) │
+                                    └─────────┼────────────────┼──────────┘
+                                              │                │
+                                    ┌─────────┴────────────────┴──────────┐
+                                    │        Reverse Proxy / Gateway       │
+                                    │   (Morph: *.http.cloud.morph.so)     │
+                                    │   (PVE: needs Caddy/Nginx/Cloudflare)│
+                                    └─────────────────────────────────────┘
+                                                       ▲
+                                                       │ HTTPS
+                                              ┌────────┴────────┐
+                                              │   End User      │
+                                              │   (Browser)     │
+                                              └─────────────────┘
+```
+
+**For Morph**:
+- `instance.exec()` -> Morph API -> Container (server-to-container)
+- Public access: `https://{service}-{id}.http.cloud.morph.so` (Morph's reverse proxy)
+
+**For PVE LXC** (with sidecar agent):
+- `instance.exec()` -> HTTP to container IP:39383 (server-to-container)
+- Public access: Requires separate reverse proxy (Caddy/Nginx/Cloudflare Tunnel)
+
+### Public Domain Access for PVE LXC
+
+The sidecar agent approach works for server-side exec. For public HTTPS access, you need:
+
+1. **Reverse Proxy on PVE Host** (e.g., Caddy, Nginx, Traefik)
+2. **Cloudflare Tunnel** (recommended for public access without port forwarding)
+3. **Wildcard DNS** pointing to the proxy
+
+Example with Cloudflare Tunnel:
+```bash
+# On PVE host, run cloudflared to expose containers
+cloudflared tunnel --url http://container-ip:39378
+# Results in: https://random-subdomain.trycloudflare.com
+```
+
+Or with Caddy reverse proxy:
+```caddyfile
+# Caddyfile on PVE host
+*.sandbox.yourdomain.com {
+    reverse_proxy {header.X-Container-IP}:39378
+}
+```
+
 ---
 
 ## Comparison Matrix: PVE LXC Options
