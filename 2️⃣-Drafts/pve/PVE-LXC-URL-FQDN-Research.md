@@ -375,6 +375,150 @@ For API endpoints or webhooks that need public access:
 
 ---
 
+## Exposing PVE API via Cloudflare Tunnel
+
+If you want to access the PVE API from outside your network (e.g., from cmux running elsewhere), you can expose the local PVE API (`https://karl-ws.lan:8006`) via Cloudflare Tunnel as `https://pve.alphasolves.com`.
+
+### Why Expose PVE API?
+
+- **Remote Management**: Manage PVE and LXC containers from anywhere
+- **cmux Integration**: Allow cmux (hosted elsewhere) to provision sandboxes on your home PVE
+- **No Port Forwarding**: Works behind NAT without opening router ports
+- **Zero Trust Auth**: Protect API access with Cloudflare Access policies
+
+### Step 1: Add PVE Route to Caddy
+
+Update your Caddy configuration to route `pve.alphasolves.com` to the local PVE API:
+
+```caddyfile
+# /etc/caddy/Caddyfile.cmux
+:8080 {
+    # PVE API - route to local PVE host
+    @pve host pve.alphasolves.com
+    handle @pve {
+        reverse_proxy https://karl-ws.lan:8006 {
+            transport http {
+                tls_insecure_skip_verify
+            }
+        }
+    }
+
+    # VSCode service
+    @vscode header_regexp vmid Host ^vscode-(\d+)\.
+    handle @vscode {
+        reverse_proxy cmux-{re.vmid.1}.lan:39378
+    }
+
+    # ... rest of existing config ...
+}
+```
+
+Key points:
+- `@pve host pve.alphasolves.com` matches exact hostname
+- `tls_insecure_skip_verify` is needed because PVE uses self-signed cert
+- This rule should come before wildcard rules
+
+### Step 2: Add DNS Record in Cloudflare
+
+Add a CNAME record for `pve.alphasolves.com`:
+
+```
+Type: CNAME
+Name: pve
+Target: <tunnel-id>.cfargotunnel.com
+Proxy: ON (orange cloud)
+```
+
+Or via API:
+
+```bash
+curl -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records" \
+    -H "Authorization: Bearer ${CF_API_TOKEN}" \
+    -H "Content-Type: application/json" \
+    --data '{
+        "type": "CNAME",
+        "name": "pve",
+        "content": "<tunnel-id>.cfargotunnel.com",
+        "proxied": true
+    }'
+```
+
+### Step 3: (Optional but Recommended) Add Zero Trust Access Policy
+
+Protect the PVE API with authentication:
+
+1. Go to **Zero Trust Dashboard > Access > Applications > Add Application**
+2. Application type: **Self-hosted**
+3. Application domain: `pve.alphasolves.com`
+4. Create policy:
+   - **Name**: `PVE API Access`
+   - **Action**: Allow
+   - **Include**: Emails - `your-email@example.com`
+5. Enable **One-time PIN** or configure SSO
+
+For API access (e.g., from cmux), create a **Service Token**:
+
+1. **Zero Trust Dashboard > Access > Service Auth > Create Service Token**
+2. Copy the `CF-Access-Client-Id` and `CF-Access-Client-Secret`
+3. Use in API calls:
+
+```bash
+curl -H "CF-Access-Client-Id: <client-id>" \
+     -H "CF-Access-Client-Secret: <client-secret>" \
+     https://pve.alphasolves.com/api2/json/version
+```
+
+### Step 4: Update Environment Variables
+
+Update your `.env` to use the public URL:
+
+```bash
+# Before (local only)
+PVE_API_URL=https://karl-ws.lan:8006
+
+# After (accessible from anywhere via Cloudflare Tunnel)
+PVE_API_URL=https://pve.alphasolves.com
+
+# If using Zero Trust, add service token credentials
+CF_ACCESS_CLIENT_ID=<client-id>
+CF_ACCESS_CLIENT_SECRET=<client-secret>
+```
+
+### Step 5: Reload Services
+
+```bash
+# Reload Caddy config
+systemctl reload caddy-cmux
+
+# Verify the route is working
+curl -k https://pve.alphasolves.com/api2/json/version
+```
+
+### Security Considerations
+
+| Protection Layer | Description |
+|------------------|-------------|
+| **Cloudflare WAF** | Basic protection against common attacks |
+| **Zero Trust Access** | Require authentication before reaching PVE |
+| **PVE API Token** | Use limited-permission API tokens, not root |
+| **SSL/TLS** | End-to-end encryption (Cloudflare -> Caddy -> PVE) |
+
+**Best Practice**: Create a dedicated PVE API token with minimal permissions:
+
+```bash
+# On PVE host, create user and token
+pveum user add cmux@pve
+pveum aclmod / -user cmux@pve -role PVEVMAdmin
+pveum user token add cmux@pve cmux-token --privsep=0
+```
+
+Use the generated token:
+```
+PVE_API_TOKEN=cmux@pve!cmux-token=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+```
+
+---
+
 ## Quick Reference Commands
 
 ```bash
@@ -395,6 +539,9 @@ pct exec 200 -- systemctl status cmux-execd
 
 # Test public URL
 curl -I https://vscode-200.yourdomain.com
+
+# Test PVE API via tunnel
+curl -k https://pve.alphasolves.com/api2/json/version
 ```
 
 ---
@@ -403,14 +550,17 @@ curl -I https://vscode-200.yourdomain.com
 
 | Component | Version | Status |
 |-----------|---------|--------|
-| PVE | 8.4 | Working |
+| PVE | 8.4.14 | Working |
 | cloudflared | 2025.11.1 | Working |
 | Caddy | 2.10.2 | Working |
 | Cloudflare DNS | Universal SSL | Working |
 | Tunnel ID | `6e04bb92-1500-44a7-b469-713cafa9ee5f` | Active |
 
 **Working URLs:**
+- `https://pve.alphasolves.com` - PVE API (via tunnel)
 - `https://vscode-200.alphasolves.com` - VSCode Web UI
+- `https://worker-200.alphasolves.com` - Worker service
+- `https://exec-200.alphasolves.com` - Exec service
 
 ---
 
