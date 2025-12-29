@@ -12,13 +12,16 @@
 
 | Platform | Self-Host | Web UI | Snapshot | Pause/Resume | License | Deploy Ease | Recommendation |
 |----------|-----------|--------|----------|--------------|---------|-------------|----------------|
-| **Daytona** | ✅ | ✅ Full | ✅ | ✅ | AGPL-3.0 | ⭐⭐⭐⭐ | **Best Overall** |
+| **Coder** ⭐ | ✅ Easy | ✅ Full | ❌ | ❌ | AGPL-3.0 | ⭐⭐⭐⭐⭐ | **Best self-host CDE** |
+| **Daytona** | ⚠️ Complex | ✅ Full | ✅ | ✅ | AGPL-3.0 | ⭐⭐ | Best features, hard self-host |
 | **E2B** | ✅ (GCP) | ❌ | ✅ | ✅ | Apache-2.0 | ⭐⭐ | Complex self-host |
-| **Microsandbox** | ✅ | ❌ CLI | ✅ Build | ❌ | Apache-2.0 | ⭐⭐⭐⭐⭐ | Simplest setup |
-| **OpenNebula** | ✅ | ✅ Sunstone | ✅ | ✅ | Apache-2.0 | ⭐⭐ | Enterprise |
+| **Microsandbox** | ✅ | ❌ CLI | ✅ Build | ❌ | Apache-2.0 | ⭐⭐⭐⭐⭐ | **Simplest AI sandbox** |
+| **OpenNebula** | ✅ | ✅ Sunstone | ✅ | ✅ | Apache-2.0 | ⭐⭐⭐ | Enterprise |
 | **Kata + K8s** | ✅ | ❌ | ✅ CLH | ✅ | Apache-2.0 | ⭐⭐⭐ | K8s native |
 
-**Winner for AI sandbox use case: Daytona** - Full Web UI, Snapshots, Auto-lifecycle, Docker Compose deploy
+**Winner for self-hosted dev environments: Coder** - Single binary, Web UI, Terraform templates, 50M+ downloads
+**Winner for AI sandbox (simple): Microsandbox** - Single binary, no dependencies, MCP native
+**Best features (if you can deploy it): Daytona** - But requires 12+ services, not production-ready
 
 ### Complementary Technologies (Different Purpose)
 
@@ -33,7 +36,7 @@
 
 ## Detailed Comparison
 
-### 1. Daytona ⭐ RECOMMENDED
+### 1. Daytona ⚠️ COMPLEX SELF-HOST
 
 > Secure Infrastructure for Running AI-Generated Code
 
@@ -42,7 +45,7 @@
 #### Features
 | Feature | Support | Notes |
 |---------|---------|-------|
-| Self-Hosted | ✅ | Docker Compose deployment |
+| Self-Hosted | ⚠️ Complex | 12+ services, many env vars |
 | Web UI | ✅ | Full dashboard with sandbox table |
 | Snapshots | ✅ | Pre-built templates from OCI images |
 | Pause/Resume | ✅ | Stop (clears memory) / Start |
@@ -58,30 +61,70 @@ STARTED → STOPPED → ARCHIVED → DELETED
     └─────────┘
 ```
 
-#### Self-Host Deployment
+#### Self-Host Reality Check ⚠️
+
+> **Warning**: The official docs state this setup is **"not safe to use in production"**
+
+**Required Services (12+)**:
+| Service | Purpose |
+|---------|---------|
+| API | Main application server |
+| Proxy | Request routing |
+| Runner | Sandbox hosting |
+| SSH Gateway | SSH access handler |
+| PostgreSQL | Data persistence |
+| Redis | Caching/sessions |
+| Dex | OIDC authentication |
+| Registry | Docker image registry |
+| MinIO | S3-compatible storage |
+| MailDev | Email testing |
+| Jaeger | Distributed tracing |
+| PgAdmin | DB administration |
+
+**Environment Variables Required**:
+- Database: host, port, credentials, TLS
+- Auth: OIDC client ID, issuer URL, audience
+- Registry: credentials for transient/internal registries
+- S3: endpoint, access keys, bucket config
+- Runner: CPU/memory/disk/GPU allocation, API keys
+- Quotas: org-level resource limits
+- SMTP: email server config
+- Proxy: domain, protocol settings
+
+**Optional but Recommended**:
+- Auth0 integration (alternative to Dex)
+- Custom DNS setup for proxy URLs
+
+#### Self-Host Deployment (Simplified View)
 ```bash
 git clone https://github.com/daytonaio/daytona
 cd daytona
+
+# Setup DNS for proxy (required)
+./scripts/setup-proxy-dns.sh
+
+# Configure .env file (many variables!)
+cp .env.example .env
+# Edit .env with your values...
+
 docker compose up -d
 ```
 
-Services included:
-- API Server
-- Proxy
-- Runner
-- SSH Gateway
-- Database (PostgreSQL)
-- Redis
-
 #### Pros
-- Full-featured Web UI
+- Full-featured Web UI (best in class)
 - Automated lifecycle management
 - OCI/Docker compatible
 - Active development (21k stars)
+- Rich SDK (Python, TypeScript)
 
 #### Cons
-- **AGPL-3.0 license** (enterprise friction - modifications must be open-sourced)
-- Uses containers, not microVMs (weaker isolation than Firecracker)
+- **⚠️ NOT production-ready** (per official docs)
+- **12+ services** to manage
+- **Dozens of environment variables** to configure
+- **Third-party dependencies**: Auth0/Dex, MinIO, external DNS
+- **AGPL-3.0 license** (enterprise friction)
+- Uses containers, not microVMs (weaker isolation)
+- **High operational complexity** for self-hosting
 
 ---
 
@@ -365,6 +408,217 @@ curl -fsSL https://downloads.opennebula.io/packages/opennebula-6.8/minione | \
 - [Kata Containers](https://katacontainers.io/)
 - [Best Sandbox Runners 2025](https://betterstack.com/community/comparisons/best-sandbox-runners/)
 - [E2B Alternatives - Beam](https://www.beam.cloud/blog/best-e2b-alternatives)
+
+---
+
+### 6. Coder ⭐ RECOMMENDED FOR SELF-HOST
+
+> Self-hosted Cloud Development Environments (50M+ downloads)
+
+**GitHub**: [coder/coder](https://github.com/coder/coder) (9k+ stars)
+**Website**: [coder.com](https://coder.com)
+**License**: AGPL-3.0 (OSS) / Enterprise
+
+#### What is Coder?
+
+Coder is the #1 self-hosted cloud development environment platform. Unlike Daytona, it's **production-ready** and designed for easy self-hosting. Development environments are defined with Terraform and can run on Docker, Kubernetes, or cloud VMs.
+
+#### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Coder Web UI                              │
+│              (Dashboard + Workspace Management)              │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+┌─────────────────────────▼───────────────────────────────────┐
+│                      coderd                                  │
+│           (Control Plane - Single Binary)                    │
+│  • REST API  • Auth  • Template Management  • Provisioning   │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+┌─────────────────────────▼───────────────────────────────────┐
+│                   provisionerd                               │
+│              (Terraform Execution Engine)                    │
+└────────┬────────────────┬────────────────┬──────────────────┘
+         │                │                │
+         ▼                ▼                ▼
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│   Docker    │  │  Kubernetes │  │  Cloud VMs  │
+│ Containers  │  │    Pods     │  │ (AWS/GCP/Az)│
+└─────────────┘  └─────────────┘  └─────────────┘
+         │                │                │
+         └────────────────┼────────────────┘
+                          │
+┌─────────────────────────▼───────────────────────────────────┐
+│                   coder_agent                                │
+│    (Runs in workspace: SSH, port-forward, IDE connect)       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Features
+
+| Feature | Support | Notes |
+|---------|---------|-------|
+| Self-Hosted | ✅ Easy | Single binary or Docker/K8s |
+| Web UI | ✅ Full | Dashboard, workspace management |
+| Templates | ✅ | Terraform-based, reusable |
+| Multi-Cloud | ✅ | Docker, K8s, AWS, GCP, Azure |
+| IDE Support | ✅ | VS Code, JetBrains, Web IDE |
+| SSH Access | ✅ | WireGuard-based secure tunnel |
+| Auto-Stop | ✅ | Idle shutdown, cost savings |
+| Air-Gapped | ✅ | Offline deployments supported |
+| HA/Scaling | ⚠️ Enterprise | OSS limited to single node |
+
+#### Self-Host Prerequisites
+
+**Minimal Requirements**:
+| Component | Requirement |
+|-----------|-------------|
+| OS | Linux, macOS, Windows |
+| Database | PostgreSQL 13+ (built-in available) |
+| Docker | For Docker-based workspaces |
+| Memory | 2GB+ RAM for coderd |
+
+**Apple Silicon Note**: External PostgreSQL required (built-in not supported)
+**Windows Note**: Visual C++ Runtime required for built-in PostgreSQL
+
+#### Installation Methods
+
+**1. Quickest - Single Binary (Linux/macOS)**:
+```bash
+# Install Coder
+curl -L https://coder.com/install.sh | sh
+
+# Start server (uses built-in PostgreSQL)
+coder server
+
+# Access Web UI at http://localhost:3000
+```
+
+**2. Docker (Recommended for Production)**:
+```bash
+# With built-in database
+docker run --rm -it \
+  -e CODER_ACCESS_URL="http://localhost:7080" \
+  -p 7080:7080 \
+  ghcr.io/coder/coder:latest
+
+# With external PostgreSQL
+docker run --rm -it \
+  -e CODER_PG_CONNECTION_URL="postgres://user:pass@host/coder" \
+  -e CODER_ACCESS_URL="http://localhost:7080" \
+  -p 7080:7080 \
+  ghcr.io/coder/coder:latest
+```
+
+**3. Kubernetes (Enterprise)**:
+```bash
+# Add Helm repo
+helm repo add coder-v2 https://helm.coder.com/v2
+
+# Install PostgreSQL
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm install postgresql bitnami/postgresql \
+    --namespace coder \
+    --set auth.username=coder \
+    --set auth.password=coder \
+    --set auth.database=coder
+
+# Install Coder
+helm install coder coder-v2/coder \
+    --namespace coder \
+    --values values.yaml
+```
+
+#### Template Example (Docker)
+
+```hcl
+terraform {
+  required_providers {
+    coder = { source = "coder/coder" }
+    docker = { source = "kreuzwerker/docker" }
+  }
+}
+
+data "coder_workspace" "me" {}
+
+resource "coder_agent" "main" {
+  os   = "linux"
+  arch = "amd64"
+  dir  = "/home/coder"
+}
+
+resource "docker_container" "workspace" {
+  count = data.coder_workspace.me.start_count
+  name  = "coder-${data.coder_workspace.me.owner}-${data.coder_workspace.me.name}"
+  image = "codercom/enterprise-base:ubuntu"
+
+  env = [
+    "CODER_AGENT_TOKEN=${coder_agent.main.token}"
+  ]
+
+  command = ["sh", "-c", coder_agent.main.init_script]
+}
+```
+
+#### OSS vs Enterprise
+
+| Feature | OSS (Free) | Enterprise |
+|---------|------------|------------|
+| Workspaces | ✅ Unlimited | ✅ Unlimited |
+| Templates | ✅ | ✅ |
+| Docker/K8s/VM | ✅ | ✅ |
+| IDE Support | ✅ | ✅ |
+| SSH/Port Forward | ✅ | ✅ |
+| Auto-stop | ✅ | ✅ |
+| High Availability | ❌ | ✅ |
+| RBAC/Audit Logs | ❌ | ✅ |
+| Workspace Quotas | ❌ | ✅ |
+| SAML/OIDC | Basic | ✅ Full |
+| Support | Community | ✅ 24/7 |
+
+#### Comparison: Coder vs Daytona
+
+| Aspect | Coder OSS | Daytona |
+|--------|-----------|---------|
+| **Self-Host Ease** | ⭐⭐⭐⭐⭐ Single binary | ⭐⭐ 12+ services |
+| **Production Ready** | ✅ Yes | ❌ "Not safe for production" |
+| **Prerequisites** | PostgreSQL only | PostgreSQL, Redis, MinIO, Dex, Registry... |
+| **Web UI** | ✅ Full | ✅ Full |
+| **Templates** | Terraform-based | OCI images |
+| **Multi-Cloud** | ✅ Any (via Terraform) | ⚠️ Limited |
+| **IDE Support** | VS Code, JetBrains, Web | VS Code |
+| **Auto-Stop** | ✅ | ✅ |
+| **License** | AGPL-3.0 | AGPL-3.0 |
+| **Maturity** | 50M+ downloads | 21k stars |
+
+#### Pros
+- **⭐ Easy self-hosting** - single binary or simple Docker
+- **Production-ready** - 50M+ downloads, enterprise-proven
+- **Terraform-based** - full infrastructure flexibility
+- **Multi-cloud** - Docker, K8s, AWS, GCP, Azure, any Terraform provider
+- **IDE freedom** - VS Code, JetBrains, SSH, web
+- **Auto-stop** - cost savings built-in
+- **Air-gapped support** - offline deployments
+
+#### Cons
+- **AGPL-3.0 license** - enterprise considerations
+- **HA requires Enterprise** - OSS limited to single node
+- **No microVM isolation** - containers/VMs only (not Firecracker)
+- **No built-in snapshots** - workspace state not preserved on stop
+
+#### When to Use Coder
+
+| Use Case | Recommendation |
+|----------|----------------|
+| Self-hosted dev environments | ✅ **Best choice** |
+| Team onboarding | ✅ Seconds to start |
+| Multi-cloud workspaces | ✅ Terraform flexibility |
+| Enterprise compliance | ✅ With Enterprise license |
+| Air-gapped environments | ✅ Supported |
+| **AI code sandboxes** | ⚠️ Use Microsandbox/Kata instead |
+| **MicroVM isolation** | ❌ Use Kata/Firecracker |
 
 ---
 
@@ -759,63 +1013,100 @@ Many users combine these technologies effectively:
 
 ## Updated Feature Matrix
 
-| Feature            | Daytona   | E2B        | Microsandbox | OpenNebula | Kata+K8s   | **Podman** | **Proxmox VE** |
-| ------------------ | --------- | ---------- | ------------ | ---------- | ---------- | ---------- | -------------- |
-| **Primary Use**    | AI Sandbox| AI Sandbox | AI Sandbox   | Cloud      | K8s Sandbox| Containers | Virtualization |
-| **Isolation**      | Container | MicroVM    | MicroVM      | MicroVM    | MicroVM    | Container  | VM/LXC         |
-| **Boot Time**      | <90ms     | <200ms     | <200ms       | ~1s        | ~300ms     | <100ms     | 10-60s (VM)    |
-| **Web UI**         | ✅ Full   | ❌         | ❌           | ✅ Full    | ❌         | ❌ (Desktop)| ✅ Full       |
-| **Snapshot**       | ✅        | ✅         | Build only   | ✅         | ✅         | ✅ (CRIU)  | ✅             |
-| **Pause/Resume**   | ✅        | ✅         | ❌           | ✅         | ✅         | ✅ (CRIU)  | ✅             |
-| **Live Migration** | ❌        | ❌         | ❌           | ✅         | ❌         | ❌         | ✅             |
-| **Auto-lifecycle** | ✅        | ❌         | ❌           | ✅         | ❌         | ❌         | ✅ (HA)        |
-| **K8s Native**     | ❌        | ❌         | ❌           | ❌         | ✅         | ⚠️ Pods    | ❌             |
-| **Rootless**       | ❌        | ❌         | ❌           | ❌         | ❌         | ✅ Native  | N/A            |
-| **Windows Support**| ❌        | ❌         | ❌           | ✅         | ❌         | ❌         | ✅ Full        |
-| **License**        | AGPL-3.0  | Apache-2.0 | Apache-2.0   | Apache-2.0 | Apache-2.0 | Apache-2.0 | AGPL-3.0       |
-| **Deploy Effort**  | Low       | High       | Very Low     | Medium     | Medium     | Very Low   | Medium         |
+| Feature            | **Coder** | Daytona   | E2B        | Microsandbox | OpenNebula | Kata+K8s   | Podman     | Proxmox VE |
+| ------------------ | --------- | --------- | ---------- | ------------ | ---------- | ---------- | ---------- | ---------- |
+| **Primary Use**    | Dev Env   | AI Sandbox| AI Sandbox | AI Sandbox   | Cloud      | K8s Sandbox| Containers | VMs        |
+| **Isolation**      | Container | Container | MicroVM    | MicroVM      | MicroVM    | MicroVM    | Container  | VM/LXC     |
+| **Boot Time**      | ~5s       | <90ms     | <200ms     | <200ms       | ~1s        | ~300ms     | <100ms     | 10-60s     |
+| **Web UI**         | ✅ Full   | ✅ Full   | ❌         | ❌           | ✅ Full    | ❌         | ❌ Desktop | ✅ Full    |
+| **Snapshot**       | ❌        | ✅        | ✅         | Build only   | ✅         | ✅         | ✅ CRIU    | ✅         |
+| **Pause/Resume**   | ❌        | ✅        | ✅         | ❌           | ✅         | ✅         | ✅ CRIU    | ✅         |
+| **Auto-Stop**      | ✅        | ✅        | ❌         | ❌           | ✅         | ❌         | ❌         | ✅ HA      |
+| **Multi-Cloud**    | ✅ Any    | ⚠️        | GCP only   | ❌           | ✅         | ❌         | ❌         | ❌         |
+| **IDE Support**    | ✅ All    | VS Code   | ❌         | ❌           | ❌         | ❌         | ❌         | VNC        |
+| **K8s Native**     | ✅        | ❌        | ❌         | ❌           | ❌         | ✅         | ⚠️ Pods   | ❌         |
+| **Air-Gapped**     | ✅        | ❌        | ❌         | ✅           | ✅         | ✅         | ✅         | ✅         |
+| **License**        | AGPL-3.0  | AGPL-3.0  | Apache-2.0 | Apache-2.0   | Apache-2.0 | Apache-2.0 | Apache-2.0 | AGPL-3.0   |
+| **Deploy Effort**  | **⭐ Low**| ⚠️ High  | High       | **⭐ Low**   | Medium     | Medium     | Very Low   | Medium     |
+| **Production**     | ✅ 50M+   | ❌ No     | ✅         | ⚠️ Beta     | ✅         | ✅         | ✅         | ✅         |
 
 ---
 
 ## Updated Recommendations by Use Case
 
-### For Morph Cloud-like Experience
-**→ Daytona** (unchanged)
-- Web UI ✅, Snapshots ✅, Auto-lifecycle ✅
+### For Self-Hosted Dev Environments ⭐ NEW
+**→ Coder**
+- Single binary or Docker install
+- Full Web UI, Terraform templates
+- 50M+ downloads, production-ready
+- Multi-cloud (Docker, K8s, AWS, GCP, Azure)
 
-### For Simplest AI Sandbox
-**→ Microsandbox** (unchanged)
-- One binary, MCP native, <200ms boot
+### For Easiest Self-Hosted AI Sandbox
+**→ Microsandbox**
+- Single binary install, no dependencies
+- MCP native, <200ms boot
+- Apache-2.0 license
 
-### For Enterprise Private Cloud
-**→ Proxmox VE** ⭐ NEW
+### For Full-Featured AI Sandbox (If You Can Deploy It)
+**→ Daytona** ⚠️
+- Best Web UI and features
+- **BUT**: 12+ services, dozens of env vars, not production-ready
+- Only if you have DevOps resources to manage complexity
+
+### For Kubernetes-Native Sandbox
+**→ Kata Containers + K3s**
+- Your existing setup works
+- True microVM isolation
+- Production-ready
+
+### For Enterprise Private Cloud / Homelab
+**→ Proxmox VE**
 - Full Web UI with KVM + LXC
 - Live migration, HA clustering
-- ZFS/Ceph storage integration
-
-### For Kubernetes-Native
-**→ Kata Containers** (unchanged)
-- Your existing K3s setup
+- Run K3s inside KVM, Podman inside LXC
 
 ### For Docker Replacement (Dev/CI)
-**→ Podman** ⭐ NEW
+**→ Podman**
 - Rootless, daemonless, Docker-compatible
 - Superior security model
 - No licensing fees
 
-### For Homelab Virtualization
-**→ Proxmox VE** ⭐ NEW
-- Manage VMs, containers, storage
-- Run Podman inside LXC
-- Run K3s inside KVM
-
 ### For Strongest Isolation + Snapshots
-**→ E2B** (unchanged)
+**→ E2B (self-hosted)**
 - Firecracker microVMs
+- Complex (Terraform + GCP)
+
+### Decision Tree
+
+```
+Need Self-Hosted Dev Environments?
+├─ Want Web UI + easy setup? → Coder ⭐
+├─ Need IDE flexibility? → Coder (VS Code, JetBrains, Web)
+└─ Need multi-cloud? → Coder (Terraform-based)
+
+Need AI Sandbox / MicroVM?
+├─ Want easy self-host? → Microsandbox
+├─ Need snapshots/pause? → Daytona (if you can deploy it)
+├─ Already using K8s? → Kata Containers
+└─ Need enterprise features? → OpenNebula
+
+Need VM/Container Platform?
+├─ Homelab/enterprise VMs? → Proxmox VE
+├─ Docker replacement? → Podman
+└─ Both VMs + containers? → Proxmox VE + Podman inside LXC
+```
 
 ---
 
 ## References (Updated)
+
+### Coder (Recommended)
+- [Coder Official Site](https://coder.com)
+- [Coder GitHub](https://github.com/coder/coder)
+- [Coder Docs](https://coder.com/docs)
+- [Coder Install Guide](https://coder.com/docs/install)
+- [Coder vs Other CDEs](https://coder.com/cde/compare)
+- [7 Remote Development Platforms 2025](https://dev.to/diploi/7-remote-development-platforms-in-2025-to-code-without-a-local-setup-1f92)
 
 ### Original Platforms
 - [Daytona GitHub](https://github.com/daytonaio/daytona)
@@ -844,4 +1135,4 @@ Many users combine these technologies effectively:
 
 ---
 
-#sandbox #microvm #self-hosted #daytona #e2b #microsandbox #kata-containers #firecracker #podman #proxmox #virtualization #containers
+#sandbox #microvm #self-hosted #coder #daytona #e2b #microsandbox #kata-containers #firecracker #podman #proxmox #virtualization #containers #cde #remote-development
