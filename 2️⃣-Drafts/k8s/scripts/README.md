@@ -1,6 +1,8 @@
 # Kata Containers Installation Scripts
 
-Scripts for installing Kata Containers with Firecracker support.
+Scripts for installing Kata Containers with Firecracker/Cloud Hypervisor support.
+
+> **See also**: [[Self-Hosted-Sandbox-Platforms-Comparison]] for alternatives like Daytona, E2B, Microsandbox
 
 ## Scripts Overview
 
@@ -9,6 +11,9 @@ Scripts for installing Kata Containers with Firecracker support.
 | `kata-manager.sh` | [Official](https://github.com/kata-containers/kata-containers/blob/main/utils/kata-manager.sh) | Full-featured official installer |
 | `kata-quickstart.sh` | Derived | Simplified one-script setup |
 | `kata-k8s-deploy.sh` | Derived | Kubernetes/K3s deployment |
+| `kata-snapshot-test.sh` | Custom | Snapshot demo & testing |
+| `kata-api-server.py` | Custom | REST API for VM management |
+| `kata-api-daemonset.yaml` | Custom | K8s DaemonSet for API server |
 
 ---
 
@@ -89,8 +94,42 @@ After installation, these RuntimeClasses are available:
 
 ---
 
+## Snapshot Testing (Cloud Hypervisor)
+
+```bash
+# On K3s node - full demo
+./kata-snapshot-test.sh demo
+
+# Individual commands
+./kata-snapshot-test.sh create     # Create test pod
+./kata-snapshot-test.sh pause      # Pause VM
+./kata-snapshot-test.sh snapshot   # Create snapshot (~2GB)
+./kata-snapshot-test.sh resume     # Resume VM
+./kata-snapshot-test.sh cleanup    # Delete pod
+```
+
+---
+
+## Kata API Server (Optional)
+
+Deploy REST API for managing Kata VMs:
+
+```bash
+kubectl apply -f kata-api-daemonset.yaml
+
+# API endpoints (NodePort 30808)
+curl http://<node>:30808/vms              # List VMs
+curl http://<node>:30808/vms/<id>/pause   # Pause
+curl http://<node>:30808/vms/<id>/resume  # Resume
+curl http://<node>:30808/snapshots        # List snapshots
+```
+
+---
+
 ## References
 
 - [Official Installation Docs](https://github.com/kata-containers/kata-containers/tree/main/docs/install)
 - [kata-deploy Documentation](https://github.com/kata-containers/kata-containers/tree/main/tools/packaging/kata-deploy)
 - [Firecracker Configuration](https://github.com/kata-containers/kata-containers/blob/main/docs/hypervisors.md)
+- [[Self-Hosted-Sandbox-Platforms-Comparison]] - Daytona, E2B, Microsandbox alternatives
+- [[Kata-Firecracker-Setup-Guide]] - Full setup guide
