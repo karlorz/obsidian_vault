@@ -1,0 +1,47 @@
+# Coder Helm values for K3s deployment
+# Reference: https://github.com/coder/coder/blob/main/helm/coder/values.yaml
+
+coder:
+  env:
+    # Database connection (from secret)
+    - name: CODER_PG_CONNECTION_URL
+      valueFrom:
+        secretKeyRef:
+          name: coder-db-url
+          key: url
+
+    # Access URL - update if you have a domain
+    # For testing, leave commented and use port-forward
+    # - name: CODER_ACCESS_URL
+    #   value: "http://coder.example.com"
+
+    # Disable default GitHub OAuth for local testing
+    - name: CODER_OAUTH2_GITHUB_DEFAULT_PROVIDER_ENABLE
+      value: "false"
+
+    # Enable experiments (optional)
+    # - name: CODER_EXPERIMENTS
+    #   value: "*"
+
+  # Service configuration
+  service:
+    type: NodePort
+    # Uncomment for LoadBalancer if you have MetalLB
+    # type: LoadBalancer
+
+  # Resource limits (adjust for your K3s node)
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+
+  # Ingress (optional - for production)
+  # ingress:
+  #   enable: true
+  #   className: traefik
+  #   host: coder.example.com
+  #   tls:
+  #     enable: false
