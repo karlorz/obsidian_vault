@@ -2,7 +2,7 @@
 
 Scripts for installing Kata Containers with Firecracker/Cloud Hypervisor support.
 
-> **See also**: [[Self-Hosted-Sandbox-Platforms-Comparison]] for alternatives like Daytona, E2B, Microsandbox
+> **See also**: [[../Self-Hosted-Sandbox-Platforms-Comparison]] for alternatives like Daytona, E2B, Microsandbox
 
 ## Scripts Overview
 
@@ -14,6 +14,8 @@ Scripts for installing Kata Containers with Firecracker/Cloud Hypervisor support
 | `kata-snapshot-test.sh` | Custom | Snapshot demo & testing |
 | `kata-api-server.py` | Custom | REST API for VM management |
 | `kata-api-daemonset.yaml` | Custom | K8s DaemonSet for API server |
+| `check-podman-prerequisites.sh` | Custom | Check Podman/CRIU requirements |
+| `test-podman-checkpoint.sh` | Custom | Test Podman checkpoint/restore |
 
 ---
 
@@ -126,10 +128,61 @@ curl http://<node>:30808/snapshots        # List snapshots
 
 ---
 
+## Podman Checkpoint Testing (CRIU-based Snapshots)
+
+Podman supports container checkpointing via CRIU, similar to VM snapshots but for containers.
+
+### Prerequisites Check
+
+```bash
+# Check if system meets requirements
+sudo ./check-podman-prerequisites.sh
+
+# Auto-install missing packages
+sudo ./check-podman-prerequisites.sh --install
+```
+
+### Run Checkpoint Test
+
+```bash
+# Full checkpoint/restore test suite
+sudo ./test-podman-checkpoint.sh
+```
+
+### Key Requirements (Tested on Ubuntu 24.04)
+
+| Requirement | Status | Notes |
+|-------------|--------|-------|
+| Podman 4.x+ | ✅ | `apt install podman` |
+| CRIU 4.x+ | ✅ | Via PPA: `ppa:criu/ppa` |
+| runc runtime | ✅ | `apt install runc` - **required** (crun doesn't support checkpoint) |
+| Root/sudo | ✅ | Checkpoint requires root privileges |
+
+### Quick Test Commands
+
+```bash
+# Create container with runc (required for checkpoint)
+sudo podman run -d --name test --runtime=runc alpine sleep infinity
+
+# Create checkpoint (stops container)
+sudo podman container checkpoint test --export=/tmp/checkpoint.tar.gz
+
+# Restore from checkpoint
+sudo podman rm test
+sudo podman container restore --import=/tmp/checkpoint.tar.gz --name test-restored
+
+# Create checkpoint while keeping container running
+sudo podman container checkpoint test --export=/tmp/snapshot.tar.gz --leave-running
+```
+
+> **Note**: Default crun runtime does NOT support checkpoint/restore. Always use `--runtime=runc`
+
+---
+
 ## References
 
 - [Official Installation Docs](https://github.com/kata-containers/kata-containers/tree/main/docs/install)
 - [kata-deploy Documentation](https://github.com/kata-containers/kata-containers/tree/main/tools/packaging/kata-deploy)
 - [Firecracker Configuration](https://github.com/kata-containers/kata-containers/blob/main/docs/hypervisors.md)
-- [[Self-Hosted-Sandbox-Platforms-Comparison]] - Daytona, E2B, Microsandbox alternatives
+- [[../Self-Hosted-Sandbox-Platforms-Comparison]] - Daytona, E2B, Microsandbox alternatives
 - [[Kata-Firecracker-Setup-Guide]] - Full setup guide

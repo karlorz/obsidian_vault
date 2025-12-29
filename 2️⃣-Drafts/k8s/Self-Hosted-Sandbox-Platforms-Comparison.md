@@ -706,7 +706,7 @@ podman run nginx
 - Out-of-the-box SELinux enforcement
 - No daemon = smaller attack surface
 
-#### Container Checkpointing (Snapshots)
+#### Container Checkpointing (Snapshots) ✅ TESTED
 
 Podman supports CRIU-based checkpointing for container state preservation:
 
@@ -722,9 +722,49 @@ sudo podman container checkpoint mycontainer --export=/tmp/checkpoint.tar.gz
 
 # Restore on different machine
 sudo podman container restore --import=/tmp/checkpoint.tar.gz
+
+# Checkpoint while keeping container running (for snapshots)
+sudo podman container checkpoint mycontainer --export=/tmp/snap.tar.gz --leave-running
 ```
 
-> **Note**: Checkpointing requires root privileges and CRIU 3.11+
+> **Important Requirements (Tested 2025-12-29)**:
+> - **Root privileges required** (checkpoint does not work rootless)
+> - **CRIU 4.2+** installed (`apt install criu` via PPA on Ubuntu 24.04)
+> - **runc runtime required** - crun does NOT support checkpoint/restore
+> - Use `--runtime=runc` when creating containers for checkpoint support
+
+##### Test Results (Ubuntu 24.04 + Podman 4.9.3)
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| In-place checkpoint | ✅ Works | `--leave-running` keeps container active |
+| Export to file | ✅ Works | ~38KB checkpoint file for simple container |
+| Restore from file | ✅ Works | State fully preserved (counter continued) |
+| Multiple snapshots | ✅ Works | Time-travel between states possible |
+| Cross-host restore | ✅ Works | Checkpoint files are portable |
+
+##### Setup Commands (Ubuntu 24.04)
+```bash
+# Add CRIU PPA (not in default repos for 24.04)
+sudo add-apt-repository -y ppa:criu/ppa
+sudo apt update
+
+# Install required packages
+sudo apt install -y podman criu runc
+
+# Verify installation
+criu check  # Should say "Looks good"
+runc --version
+
+# Run container with runc (required for checkpoint)
+sudo podman run -d --name myapp --runtime=runc alpine:latest sleep infinity
+
+# Create checkpoint
+sudo podman container checkpoint myapp --export=/tmp/myapp-checkpoint.tar.gz
+
+# Restore (can be on different host)
+sudo podman container restore --import=/tmp/myapp-checkpoint.tar.gz --name myapp-restored
+```
 
 #### Quick Start
 
