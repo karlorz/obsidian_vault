@@ -49,14 +49,14 @@
 
 ### RAM Snapshot Support Comparison (CRITICAL)
 
-| Platform | RAM Snapshot Method | Process Resume | API Support |
-|----------|---------------------|----------------|-------------|
-| **Morph Cloud** | Native VM snapshot | **Yes** | `pause()` / `resume()` |
-| **Proxmox VM (KVM)** | QEMU live snapshot | **Yes** | `qm snapshot` / `qm rollback` |
-| **Proxmox LXC + CRIU** | CRIU checkpoint | **Yes** | `pct checkpoint` / `pct restore` |
-| **e2b** | Firecracker snapshot | **Yes** | `betaPause()` / `connect()` |
-| microsandbox | None | **No** | start/stop only |
-| Docker + CRIU | CRIU checkpoint | **Yes** | `docker checkpoint` |
+| Platform               | RAM Snapshot Method  | Process Resume | API Support                      |
+| ---------------------- | -------------------- | -------------- | -------------------------------- |
+| **Morph Cloud**        | Native VM snapshot   | **Yes**        | `pause()` / `resume()`           |
+| **Proxmox VM (KVM)**   | QEMU live snapshot   | **Yes**        | `qm snapshot` / `qm rollback`    |
+| **Proxmox LXC + CRIU** | CRIU checkpoint      | **Yes**        | `pct checkpoint` / `pct restore` |
+| **e2b**                | Firecracker snapshot | **Yes**        | `betaPause()` / `connect()`      |
+| microsandbox           | None                 | **No**         | start/stop only                  |
+| Docker + CRIU          | CRIU checkpoint      | **Yes**        | `docker checkpoint`              |
 
 ---
 
