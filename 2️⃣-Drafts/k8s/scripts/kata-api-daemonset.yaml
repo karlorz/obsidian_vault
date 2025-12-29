@@ -1,0 +1,297 @@
+---
+# Kata VM Management API DaemonSet
+# Deploys an API server on each node to manage local Kata VMs
+#
+# After deployment, access via NodePort:
+#   curl http://<node-ip>:30808/vms
+#
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kata-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kata-api
+  namespace: kata-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kata-api
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kata-api
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kata-api
+subjects:
+- kind: ServiceAccount
+  name: kata-api
+  namespace: kata-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kata-api-server
+  namespace: kata-system
+data:
+  kata-api-server.py: |
+    #!/usr/bin/env python3
+    """Kata VM Management API Server"""
+    import os, json, glob, subprocess, socket
+    from datetime import datetime
+    from pathlib import Path
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    from urllib.parse import urlparse
+    import http.client
+
+    LISTEN_PORT = int(os.environ.get('LISTEN_PORT', '8080'))
+    SNAPSHOT_DIR = os.environ.get('SNAPSHOT_DIR', '/var/lib/kata-snapshots')
+    KATA_VM_DIR = '/host/run/vc/vm'
+
+    class UnixHTTPConnection(http.client.HTTPConnection):
+        def __init__(self, socket_path):
+            super().__init__('localhost')
+            self.socket_path = socket_path
+        def connect(self):
+            self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.sock.connect(self.socket_path)
+
+    def curl_unix(socket_path, method, path, data=None):
+        try:
+            conn = UnixHTTPConnection(socket_path)
+            headers = {'Content-Type': 'application/json'} if data else {}
+            body = json.dumps(data) if data else None
+            conn.request(method, path, body=body, headers=headers)
+            resp = conn.getresponse()
+            return {'status': resp.status, 'body': resp.read().decode()}
+        except Exception as e:
+            return {'error': str(e)}
+
+    def find_vms():
+        vms = []
+        if not os.path.exists(KATA_VM_DIR):
+            return vms
+        for vm_dir in glob.glob(f'{KATA_VM_DIR}/*'):
+            vm_id = os.path.basename(vm_dir)
+            for sock_name, hyp in [('clh-api.sock', 'clh'), ('api.socket', 'fc')]:
+                sock = os.path.join(vm_dir, sock_name)
+                if os.path.exists(sock):
+                    vms.append({'vm_id': vm_id, 'hypervisor': hyp, 'socket': sock})
+                    break
+        return vms
+
+    def get_pod_info(vm_id):
+        try:
+            r = subprocess.run(['kubectl', 'get', 'pods', '-A', '-o', 'json'],
+                capture_output=True, text=True, timeout=10)
+            if r.returncode == 0:
+                for pod in json.loads(r.stdout).get('items', []):
+                    uid = pod['metadata'].get('uid', '').replace('-', '')
+                    if vm_id.startswith(uid[:12]):
+                        return {'name': pod['metadata']['name'],
+                                'namespace': pod['metadata']['namespace']}
+        except: pass
+        return None
+
+    def list_vms():
+        result = []
+        for vm in find_vms():
+            info = {'vm_id': vm['vm_id'], 'hypervisor': vm['hypervisor'], 'state': 'unknown'}
+            pod = get_pod_info(vm['vm_id'])
+            if pod: info['pod'] = pod
+            if vm['hypervisor'] == 'clh':
+                r = curl_unix(vm['socket'], 'GET', '/api/v1/vm.info')
+                if 'body' in r:
+                    try:
+                        d = json.loads(r['body'])
+                        info['state'] = d.get('state', 'unknown')
+                        info['memory_mb'] = d.get('config',{}).get('memory',{}).get('size',0)//(1024*1024)
+                    except: pass
+            result.append(info)
+        return result
+
+    def vm_action(vm_id, action):
+        for vm in find_vms():
+            if vm['vm_id'] == vm_id or vm['vm_id'].startswith(vm_id):
+                if vm['hypervisor'] == 'clh':
+                    if action == 'pause':
+                        r = curl_unix(vm['socket'], 'PUT', '/api/v1/vm.pause')
+                    elif action == 'resume':
+                        r = curl_unix(vm['socket'], 'PUT', '/api/v1/vm.resume')
+                    elif action == 'snapshot':
+                        ts = datetime.now().strftime('%Y%m%d-%H%M%S')
+                        snap_path = f"{SNAPSHOT_DIR}/snap-{vm_id[:12]}-{ts}"
+                        os.makedirs(snap_path, exist_ok=True)
+                        r = curl_unix(vm['socket'], 'PUT', '/api/v1/vm.snapshot',
+                            {'destination_url': f'file://{snap_path}'})
+                        if r.get('status') in [200, 204] or not r.get('body'):
+                            meta = {'vm_id': vm_id, 'timestamp': datetime.now().isoformat()}
+                            pod = get_pod_info(vm_id)
+                            if pod: meta['pod'] = pod
+                            with open(f'{snap_path}/metadata.json', 'w') as f:
+                                json.dump(meta, f)
+                            return {'success': True, 'path': snap_path}
+                    else:
+                        return {'error': f'Unknown action: {action}'}
+                    return {'success': r.get('status') in [200, 204], 'response': r}
+        return {'error': 'VM not found'}
+
+    def list_snapshots():
+        snaps = []
+        snap_dir = Path(SNAPSHOT_DIR)
+        if snap_dir.exists():
+            for d in snap_dir.glob('snap-*'):
+                if d.is_dir():
+                    size = sum(f.stat().st_size for f in d.glob('*') if f.is_file())
+                    meta = {}
+                    mf = d / 'metadata.json'
+                    if mf.exists():
+                        with open(mf) as f: meta = json.load(f)
+                    snaps.append({'name': d.name, 'size_mb': size//(1024*1024), 'metadata': meta})
+        return snaps
+
+    class Handler(BaseHTTPRequestHandler):
+        def _json(self, data, status=200):
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(data, indent=2).encode())
+
+        def do_GET(self):
+            p = urlparse(self.path).path
+            if p in ['/vms', '/vms/']: self._json(list_vms())
+            elif p == '/snapshots': self._json(list_snapshots())
+            elif p == '/health': self._json({'status': 'ok'})
+            elif p.startswith('/vms/'):
+                vm_id = p.split('/')[2]
+                vms = [v for v in list_vms() if v['vm_id'].startswith(vm_id)]
+                self._json(vms[0] if vms else {'error': 'not found'})
+            else: self._json({'error': 'not found'}, 404)
+
+        def do_POST(self):
+            parts = urlparse(self.path).path.strip('/').split('/')
+            if len(parts) >= 3 and parts[0] == 'vms':
+                self._json(vm_action(parts[1], parts[2]))
+            else: self._json({'error': 'not found'}, 404)
+
+        def do_OPTIONS(self):
+            self.send_response(200)
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+            self.end_headers()
+
+        def log_message(self, fmt, *args): print(f"[{datetime.now().isoformat()}] {args[0]}")
+
+    if __name__ == '__main__':
+        print(f"Kata API Server starting on port {LISTEN_PORT}")
+        HTTPServer(('0.0.0.0', LISTEN_PORT), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kata-api
+  namespace: kata-system
+  labels:
+    app: kata-api
+spec:
+  selector:
+    matchLabels:
+      app: kata-api
+  template:
+    metadata:
+      labels:
+        app: kata-api
+    spec:
+      serviceAccountName: kata-api
+      hostPID: true
+      hostNetwork: true
+      containers:
+      - name: kata-api
+        image: python:3.11-slim
+        command:
+        - python3
+        - /app/kata-api-server.py
+        ports:
+        - containerPort: 8080
+          hostPort: 8080
+        env:
+        - name: LISTEN_PORT
+          value: "8080"
+        - name: SNAPSHOT_DIR
+          value: "/host/var/lib/kata-snapshots"
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - name: app
+          mountPath: /app
+        - name: run-vc
+          mountPath: /host/run/vc
+          readOnly: false
+        - name: snapshots
+          mountPath: /host/var/lib/kata-snapshots
+        - name: kubectl
+          mountPath: /usr/local/bin/kubectl
+          readOnly: true
+        - name: kubeconfig
+          mountPath: /root/.kube
+          readOnly: true
+        securityContext:
+          privileged: true
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+      volumes:
+      - name: app
+        configMap:
+          name: kata-api-server
+          defaultMode: 0755
+      - name: run-vc
+        hostPath:
+          path: /run/vc
+      - name: snapshots
+        hostPath:
+          path: /var/lib/kata-snapshots
+          type: DirectoryOrCreate
+      - name: kubectl
+        hostPath:
+          path: /usr/local/bin/kubectl
+      - name: kubeconfig
+        hostPath:
+          path: /root/.kube
+      tolerations:
+      - operator: Exists
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kata-api
+  namespace: kata-system
+spec:
+  type: NodePort
+  selector:
+    app: kata-api
+  ports:
+  - port: 8080
+    targetPort: 8080
+    nodePort: 30808
