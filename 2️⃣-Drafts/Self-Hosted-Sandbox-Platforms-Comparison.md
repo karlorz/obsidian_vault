@@ -267,19 +267,19 @@ curl --unix-socket /run/vc/vm/<id>/clh-api.sock \
 
 ## Feature Matrix
 
-| Feature | Daytona | E2B | Microsandbox | OpenNebula | Kata+K8s |
-|---------|---------|-----|--------------|------------|----------|
-| **Isolation** | Container | MicroVM | MicroVM | MicroVM | MicroVM |
-| **Boot Time** | <90ms | <200ms | <200ms | ~1s | ~300ms |
-| **Web UI** | ✅ Full | ❌ | ❌ | ✅ Full | ❌ |
-| **Snapshot** | ✅ | ✅ | Build only | ✅ | ✅ |
-| **Pause/Resume** | ✅ | ✅ | ❌ | ✅ | ✅ |
-| **Auto-lifecycle** | ✅ | ❌ | ❌ | ✅ | ❌ |
-| **SDK** | Py/TS | Py/JS/TS | Py/JS/Rust | API | API |
-| **MCP Support** | ✅ | ✅ | ✅ Native | ❌ | ❌ |
-| **K8s Native** | ❌ | ❌ | ❌ | ❌ | ✅ |
-| **License** | AGPL-3.0 | Apache-2.0 | Apache-2.0 | Apache-2.0 | Apache-2.0 |
-| **Deploy Effort** | Low | High | Very Low | Medium | Medium |
+| Feature            | Daytona   | E2B        | Microsandbox | OpenNebula | Kata+K8s   |
+| ------------------ | --------- | ---------- | ------------ | ---------- | ---------- |
+| **Isolation**      | Container | MicroVM    | MicroVM      | MicroVM    | MicroVM    |
+| **Boot Time**      | <90ms     | <200ms     | <200ms       | ~1s        | ~300ms     |
+| **Web UI**         | ✅ Full    | ❌          | ❌            | ✅ Full     | ❌          |
+| **Snapshot**       | ✅         | ✅          | Build only   | ✅          | ✅          |
+| **Pause/Resume**   | ✅         | ✅          | ❌            | ✅          | ✅          |
+| **Auto-lifecycle** | ✅         | ❌          | ❌            | ✅          | ❌          |
+| **SDK**            | Py/TS     | Py/JS/TS   | Py/JS/Rust   | API        | API        |
+| **MCP Support**    | ✅         | ✅          | ✅ Native     | ❌          | ❌          |
+| **K8s Native**     | ❌         | ❌          | ❌            | ❌          | ✅          |
+| **License**        | AGPL-3.0  | Apache-2.0 | Apache-2.0   | Apache-2.0 | Apache-2.0 |
+| **Deploy Effort**  | Low       | High       | Very Low     | Medium     | Medium     |
 
 ---
 
