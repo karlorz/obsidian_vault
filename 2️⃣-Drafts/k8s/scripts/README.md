@@ -15,7 +15,9 @@ Scripts for installing Kata Containers with Firecracker/Cloud Hypervisor support
 | `kata-api-server.py` | Custom | REST API for VM management |
 | `kata-api-daemonset.yaml` | Custom | K8s DaemonSet for API server |
 | `check-podman-prerequisites.sh` | Custom | Check Podman/CRIU requirements |
+| `setup-podman-checkpoint.sh` | Custom | **Setup** Podman for checkpoint (runc) |
 | `test-podman-checkpoint.sh` | Custom | Test Podman checkpoint/restore |
+| `test-ram-checkpoint.sh` | Custom | Test RAM state preservation |
 
 ---
 
@@ -132,6 +134,22 @@ curl http://<node>:30808/snapshots        # List snapshots
 
 Podman supports container checkpointing via CRIU, similar to VM snapshots but for containers.
 
+### Quick Setup (One Command)
+
+```bash
+# Full setup: install packages, configure runc, migrate containers
+sudo ./setup-podman-checkpoint.sh
+
+# Check only (don't modify)
+sudo ./setup-podman-checkpoint.sh --check
+```
+
+This script:
+1. Installs podman, criu, runc (adds CRIU PPA on Ubuntu 24.04)
+2. Creates `/etc/containers/containers.conf` with `runtime = "runc"`
+3. Migrates existing containers to runc
+4. Restarts podman services (for Cockpit UI)
+
 ### Prerequisites Check
 
 ```bash
@@ -142,11 +160,14 @@ sudo ./check-podman-prerequisites.sh
 sudo ./check-podman-prerequisites.sh --install
 ```
 
-### Run Checkpoint Test
+### Run Checkpoint Tests
 
 ```bash
 # Full checkpoint/restore test suite
 sudo ./test-podman-checkpoint.sh
+
+# Test RAM state preservation (proves memory is saved)
+sudo ./test-ram-checkpoint.sh
 ```
 
 ### Key Requirements (Tested on Ubuntu 24.04)
@@ -155,14 +176,43 @@ sudo ./test-podman-checkpoint.sh
 |-------------|--------|-------|
 | Podman 4.x+ | ✅ | `apt install podman` |
 | CRIU 4.x+ | ✅ | Via PPA: `ppa:criu/ppa` |
-| runc runtime | ✅ | `apt install runc` - **required** (crun doesn't support checkpoint) |
+| **runc runtime** | ✅ | `apt install runc` - **REQUIRED** |
+| containers.conf | ✅ | Must set `runtime = "runc"` |
 | Root/sudo | ✅ | Checkpoint requires root privileges |
+
+### Why runc is Required
+
+**crun does NOT support checkpoint/restore!** This is why Cockpit Podman UI shows "configured runtime does not support checkpoint/restore".
+
+The setup script configures `/etc/containers/containers.conf`:
+```toml
+[engine]
+runtime = "runc"
+```
+
+### Quick Manual Setup
+
+```bash
+# 1. Install packages (Ubuntu 24.04)
+sudo add-apt-repository -y ppa:criu/ppa
+sudo apt install -y podman criu runc
+
+# 2. Configure default runtime
+sudo mkdir -p /etc/containers
+echo -e '[engine]\nruntime = "runc"' | sudo tee /etc/containers/containers.conf
+
+# 3. Migrate existing containers
+sudo podman system migrate --new-runtime runc
+
+# 4. Restart podman for Cockpit
+sudo systemctl restart podman.socket
+```
 
 ### Quick Test Commands
 
 ```bash
-# Create container with runc (required for checkpoint)
-sudo podman run -d --name test --runtime=runc alpine sleep infinity
+# Create container (now uses runc by default after setup)
+sudo podman run -d --name test alpine sleep infinity
 
 # Create checkpoint (stops container)
 sudo podman container checkpoint test --export=/tmp/checkpoint.tar.gz
@@ -175,7 +225,14 @@ sudo podman container restore --import=/tmp/checkpoint.tar.gz --name test-restor
 sudo podman container checkpoint test --export=/tmp/snapshot.tar.gz --leave-running
 ```
 
-> **Note**: Default crun runtime does NOT support checkpoint/restore. Always use `--runtime=runc`
+### Cockpit Podman UI
+
+After running `setup-podman-checkpoint.sh`:
+- ✅ Checkpoint button works for all containers
+- ✅ New containers automatically use runc
+- ✅ Existing containers migrated to runc
+
+> **Note**: Default crun runtime does NOT support checkpoint/restore. The setup script fixes this by configuring runc as default.
 
 ---
 

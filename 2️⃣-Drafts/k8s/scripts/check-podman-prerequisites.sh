@@ -299,7 +299,53 @@ print_section "6. Container Runtime Configuration"
 if command -v podman &> /dev/null; then
     # Check default OCI runtime
     RUNTIME=$(podman info --format '{{.Host.OCIRuntime.Name}}' 2>/dev/null || echo "unknown")
-    print_check "pass" "OCI Runtime" "$RUNTIME"
+
+    # CRITICAL: Check if runtime is runc (required for checkpoint)
+    if [[ "$RUNTIME" == "runc" ]]; then
+        print_check "pass" "OCI Runtime" "$RUNTIME (checkpoint supported ✓)"
+    elif [[ "$RUNTIME" == "crun" ]]; then
+        print_check "fail" "OCI Runtime" "$RUNTIME (does NOT support checkpoint!)"
+        echo ""
+        echo -e "  ${YELLOW}⚠ IMPORTANT: crun does not support checkpoint/restore${NC}"
+        echo -e "  ${YELLOW}  You must configure Podman to use runc as default runtime.${NC}"
+        echo ""
+        echo "  To fix this, run: sudo ./setup-podman-checkpoint.sh"
+        echo "  Or manually create /etc/containers/containers.conf with:"
+        echo ""
+        echo "    [engine]"
+        echo "    runtime = \"runc\""
+        echo ""
+    else
+        print_check "warn" "OCI Runtime" "$RUNTIME (unknown - may not support checkpoint)"
+    fi
+
+    # Check if runc is available
+    if command -v runc &> /dev/null; then
+        RUNC_VER=$(runc --version 2>&1 | head -1)
+        print_check "pass" "runc available" "$RUNC_VER"
+    else
+        print_check "fail" "runc available" "Not installed (required for checkpoint)"
+        echo "  Install with: apt install runc (Ubuntu) or dnf install runc (Fedora)"
+        if [[ "$INSTALL_MODE" == true ]]; then
+            install_package "runc"
+        fi
+    fi
+
+    # Check containers.conf for runtime setting
+    CONTAINERS_CONF="/etc/containers/containers.conf"
+    if [[ -f "$CONTAINERS_CONF" ]]; then
+        if grep -q 'runtime.*=.*"runc"' "$CONTAINERS_CONF" 2>/dev/null; then
+            print_check "pass" "containers.conf" "Configured with runtime=runc"
+        else
+            print_check "warn" "containers.conf" "Exists but runtime may not be set to runc"
+        fi
+    else
+        if [[ "$RUNTIME" != "runc" ]]; then
+            print_check "fail" "containers.conf" "Not found - need to configure default runtime"
+        else
+            print_check "pass" "containers.conf" "Not needed (runc already default)"
+        fi
+    fi
 
     # Check storage driver
     STORAGE=$(podman info --format '{{.Store.GraphDriverName}}' 2>/dev/null || echo "unknown")
@@ -339,14 +385,17 @@ else
     print_check "warn" "Podman storage" "/var/lib/containers not found (will be created)"
 fi
 
-# Check for runc or crun
-if command -v crun &> /dev/null; then
-    print_check "pass" "Container runtime" "crun available ($(crun --version | head -1))"
-elif command -v runc &> /dev/null; then
-    print_check "pass" "Container runtime" "runc available ($(runc --version | head -1))"
+# Check for runc (required for checkpoint)
+if command -v runc &> /dev/null; then
+    print_check "pass" "runc binary" "$(which runc)"
 else
-    print_check "fail" "Container runtime" "Neither runc nor crun found"
-    install_package "crun"
+    print_check "fail" "runc binary" "Not found - required for checkpoint"
+    install_package "runc"
+fi
+
+# Check for crun (optional, but doesn't support checkpoint)
+if command -v crun &> /dev/null; then
+    print_check "warn" "crun binary" "Available but does NOT support checkpoint"
 fi
 
 #####################################
@@ -354,29 +403,56 @@ fi
 #####################################
 print_section "8. Quick Functional Test"
 
-if [[ $EUID -eq 0 ]] && command -v podman &> /dev/null && command -v criu &> /dev/null; then
+if [[ $EUID -eq 0 ]] && command -v podman &> /dev/null && command -v criu &> /dev/null && command -v runc &> /dev/null; then
     echo "Running quick checkpoint test..."
 
     # Clean up any previous test
     podman rm -f prereq-test 2>/dev/null || true
 
+    # Get current default runtime
+    CURRENT_RUNTIME=$(podman info --format '{{.Host.OCIRuntime.Name}}' 2>/dev/null || echo "unknown")
+
     # Try to run and checkpoint a simple container
-    if podman run -d --name prereq-test alpine:latest sleep 60 2>/dev/null; then
-        sleep 2
-        if podman container checkpoint prereq-test --export=/tmp/prereq-test.tar.gz 2>/dev/null; then
-            print_check "pass" "Checkpoint test" "Container checkpoint works!"
-            rm -f /tmp/prereq-test.tar.gz
+    # IMPORTANT: Use --runtime=runc to ensure checkpoint works
+    if [[ "$CURRENT_RUNTIME" == "runc" ]]; then
+        # Runtime already runc, no need to specify
+        if podman run -d --name prereq-test alpine:latest sleep 60 2>/dev/null; then
+            sleep 2
+            if podman container checkpoint prereq-test --export=/tmp/prereq-test.tar.gz 2>/dev/null; then
+                print_check "pass" "Checkpoint test" "Container checkpoint works!"
+                rm -f /tmp/prereq-test.tar.gz
+            else
+                print_check "fail" "Checkpoint test" "Checkpoint command failed"
+            fi
+            podman rm -f prereq-test 2>/dev/null || true
         else
-            print_check "fail" "Checkpoint test" "Checkpoint command failed"
+            print_check "fail" "Container test" "Could not start test container"
         fi
-        podman rm -f prereq-test 2>/dev/null || true
     else
-        print_check "fail" "Container test" "Could not start test container"
+        # Need to explicitly use runc
+        echo "  Note: Using --runtime=runc (default is $CURRENT_RUNTIME)"
+        if podman run -d --name prereq-test --runtime=runc alpine:latest sleep 60 2>/dev/null; then
+            sleep 2
+            if podman container checkpoint prereq-test --export=/tmp/prereq-test.tar.gz 2>/dev/null; then
+                print_check "pass" "Checkpoint test" "Works with --runtime=runc"
+                echo ""
+                echo -e "  ${YELLOW}⚠ Checkpoint only works with runc runtime${NC}"
+                echo "  Run: sudo ./setup-podman-checkpoint.sh to set runc as default"
+                rm -f /tmp/prereq-test.tar.gz
+            else
+                print_check "fail" "Checkpoint test" "Checkpoint command failed even with runc"
+            fi
+            podman rm -f prereq-test 2>/dev/null || true
+        else
+            print_check "fail" "Container test" "Could not start test container"
+        fi
     fi
 else
     if [[ $EUID -ne 0 ]]; then
         print_check "warn" "Checkpoint test" "Skipped (requires root)"
         echo "  Run as root to perform full functional test"
+    elif ! command -v runc &> /dev/null; then
+        print_check "fail" "Checkpoint test" "Skipped (runc not installed)"
     else
         print_check "warn" "Checkpoint test" "Skipped (missing dependencies)"
     fi
