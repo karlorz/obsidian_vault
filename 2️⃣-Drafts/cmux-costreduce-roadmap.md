@@ -944,3 +944,16 @@ qm suspend ID --todisk
 - [e2b Persistence Docs](https://github.com/e2b-dev/E2B) - verified via Context7
 - [microsandbox](https://github.com/microsandbox/microsandbox) - verified NO RAM snapshot via Context7
 - [CRIU](https://criu.org/) - Checkpoint/Restore In Userspace (NOT integrated with Proxmox)
+
+---
+
+## Implementation Notes
+
+### Provider Naming Standardization (Dec 30, 2025)
+
+Standardized provider naming across cmux codebase to use only three canonical names:
+- `morph` - Morph Cloud provider (original)
+- `pve-lxc` - Proxmox VE LXC containers (fast ephemeral tasks, no RAM snapshot)
+- `pve-vm` - Proxmox VE KVM VMs (RAM snapshot support via `qm suspend --todisk`)
+
+The deprecated `"proxmox"` name is still accepted in `SANDBOX_PROVIDER` env var for backwards compatibility but is normalized to `"pve-lxc"` internally. All provider type checks now use only the three canonical names.
