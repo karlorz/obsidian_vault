@@ -132,9 +132,9 @@ export class ProxmoxProvider implements SandboxProvider {
 │                    SandboxProviderManager                           │
 │  ┌───────────────────────────────────────────────────────────────┐  │
 │  │  Routing Strategy:                                            │  │
-│  │  - primary: "proxmox" | "morph"                               │  │
+│  │  - primary: "pve-lxc" | "morph"                               │  │
 │  │  - fallback: ["morph"]                                        │  │
-│  │  - workloadRouting: { dev: "proxmox", prod: "morph" }         │  │
+│  │  - workloadRouting: { dev: "pve-lxc", prod: "morph" }         │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 │                              │                                      │
 │              ┌───────────────┴───────────────┐                      │
@@ -191,7 +191,7 @@ export class SandboxProviderManager {
       this.providers.set("morph", new MorphProvider(config.morph));
     }
     if (config.proxmox?.enabled) {
-      this.providers.set("proxmox", new ProxmoxProvider(config.proxmox));
+      this.providers.set("pve-lxc", new ProxmoxProvider(config.proxmox));
     }
   }
 
@@ -956,4 +956,3 @@ Standardized provider naming across cmux codebase to use only three canonical na
 - `pve-lxc` - Proxmox VE LXC containers (fast ephemeral tasks, no RAM snapshot)
 - `pve-vm` - Proxmox VE KVM VMs (RAM snapshot support via `qm suspend --todisk`)
 
-The deprecated `"proxmox"` name is still accepted in `SANDBOX_PROVIDER` env var for backwards compatibility but is normalized to `"pve-lxc"` internally. All provider type checks now use only the three canonical names.
