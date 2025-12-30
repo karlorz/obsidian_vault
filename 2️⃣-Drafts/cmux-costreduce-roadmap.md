@@ -2,7 +2,10 @@
 
 > **Target**: 70-85% cost reduction, aiming for <$300/mo total
 > **Timeline**: 2-4 months phased approach
-> **Last Updated**: 2025-12-26
+> **Last Updated**: 2025-12-30
+>
+> [!warning] Critical Correction (Dec 2025)
+> Previous versions incorrectly claimed Proxmox LXC supports CRIU checkpoint/restore. **This is NOT true** - see "RAM Snapshot Support" section for corrected information.
 
 ---
 
@@ -38,10 +41,11 @@
 
 | Option | Isolation | Startup | RAM Snapshot | Self-Deploy | Est. Cost | Recommendation |
 |--------|-----------|---------|--------------|-------------|-----------|----------------|
-| **Proxmox VE/LXC + CRIU** | Container (LXC) | ~100ms | **Yes (CRIU checkpoint)** | Medium | $50-200/mo | **PRIMARY - best balance** |
-| **Proxmox VE/VM** | Full VM (KVM) | ~2-5s | **Yes (QEMU snapshot)** | Medium | $50-200/mo | Alternative if CRIU issues |
+| **Proxmox VE/VM (KVM)** | Full VM | ~2-5s | **Yes (`qm suspend --todisk`)** | Medium | $50-200/mo | **PRIMARY - proven RAM snapshot** |
+| **Firecracker/Kata** | MicroVM | ~125-200ms | **Yes (native)** | High | $50-200/mo | Alternative for K8s integration |
 | **Morph Cloud** | MicroVM | ~10-20s | **Yes (native)** | N/A (SaaS) | $200-500/mo | **FALLBACK - keep enabled** |
-| Local Docker | Container | <50ms | No (CRIU possible) | High | $0 (dev only) | Dev/testing only |
+| Proxmox LXC | Container | ~100ms | **No (disk only)** | Medium | $50-200/mo | Fast startup, no RAM snapshot |
+| Local Docker | Container | <50ms | No (CRIU experimental) | High | $0 (dev only) | Dev/testing only |
 
 > **Note**: e2b, microsandbox, Daytona evaluated but not in implementation plan. See Appendix for comparison.
 
@@ -49,34 +53,49 @@
 
 ### RAM Snapshot Support Comparison (CRITICAL)
 
-| Platform               | RAM Snapshot Method  | Process Resume | API Support                      |
-| ---------------------- | -------------------- | -------------- | -------------------------------- |
-| **Morph Cloud**        | Native VM snapshot   | **Yes**        | `pause()` / `resume()`           |
-| **Proxmox VM (KVM)**   | QEMU live snapshot   | **Yes**        | `qm snapshot` / `qm rollback`    |
-| **Proxmox LXC + CRIU** | CRIU checkpoint      | **Yes**        | `pct checkpoint` / `pct restore` |
-| **e2b**                | Firecracker snapshot | **Yes**        | `betaPause()` / `connect()`      |
-| microsandbox           | None                 | **No**         | start/stop only                  |
-| Docker + CRIU          | CRIU checkpoint      | **Yes**        | `docker checkpoint`              |
+> [!danger] Proxmox LXC + CRIU Correction
+> **`pct checkpoint` and `pct restore` commands DO NOT EXIST in Proxmox VE.**
+> CRIU integration with Proxmox LXC is experimental only, not production-ready.
+> See [Proxmox Forum](https://forum.proxmox.com/tags/criu/) and [CRIU GitHub Issue #1430](https://github.com/checkpoint-restore/criu/issues/1430).
+
+| Platform               | RAM Snapshot Method     | Process Resume | API Support                      |
+| ---------------------- | ----------------------- | -------------- | -------------------------------- |
+| **Morph Cloud**        | Native VM snapshot      | **Yes**        | `pause()` / `resume()`           |
+| **Proxmox VM (KVM)**   | QEMU suspend-to-disk    | **Yes**        | `qm suspend ID --todisk` / `qm resume ID` |
+| **Firecracker**        | Memory file snapshot    | **Yes**        | `/snapshot/create` / `/snapshot/load` |
+| **Kata Containers**    | Cloud-Hypervisor/QEMU   | **Yes**        | `VmSnapshotPut` / `VmRestorePut` |
+| **e2b**                | Firecracker snapshot    | **Yes**        | `betaPause()` / `connect()`      |
+| Proxmox LXC            | Disk snapshot only      | **No**         | `pct snapshot` (NO RAM)          |
+| microsandbox           | None                    | **No**         | start/stop only                  |
+| Docker + CRIU          | Experimental            | Unreliable     | `docker checkpoint` (not production-ready) |
 
 ---
 
-### Option A: Proxmox LXC + CRIU (RECOMMENDED for Self-Host)
+### Option A: Proxmox KVM/QEMU VMs (RECOMMENDED for Self-Host)
 
-**Why Proxmox LXC + CRIU is the best self-hosted choice:**
-1. **RAM snapshot via CRIU** - Checkpoint/Restore In Userspace preserves full process state
+> [!info] Why KVM VMs instead of LXC?
+> **Proxmox LXC does NOT support CRIU checkpoint/restore** - the `pct checkpoint` command does not exist.
+> Only Proxmox KVM/QEMU VMs support RAM snapshots via `qm suspend --todisk`.
+
+**Why Proxmox KVM is the best self-hosted choice:**
+1. **RAM snapshot via QEMU suspend-to-disk** - Saves full memory state to disk, resumes processes
 2. **Mature & battle-tested** - You have good experience with Proxmox
-3. **Container-like startup** - ~100ms with LXC (faster than full VM)
-4. **Full Linux compatibility** - No compatibility issues like gVisor
-5. **Cost effective** - Hetzner/DO VPS $20-50/mo
+3. **Full isolation** - Hardware-level VM isolation (more secure than containers)
+4. **Full Linux compatibility** - No compatibility issues
+5. **Cost effective** - Hetzner/DO VPS $20-50/mo (requires nested virt support)
 6. **Rich API** - Proxmox REST API for automation
 
-**CRIU Checkpoint Example:**
+**RAM Snapshot Commands (VERIFIED):**
 ```bash
-# Checkpoint running LXC container (saves RAM + process state)
-pct checkpoint <vmid> --state-file /path/to/checkpoint
+# Suspend VM (saves RAM to disk) - VERIFIED COMMAND
+qm suspend <vmid> --todisk
 
-# Restore from checkpoint (resumes all processes)
-pct restore <vmid> --state-file /path/to/checkpoint
+# Resume VM (loads RAM from disk, processes continue)
+qm resume <vmid>
+
+# Note: LXC snapshots do NOT preserve RAM
+pct snapshot <vmid> <name>    # Disk only, NO RAM state
+pct rollback <vmid> <name>    # Restores disk, processes don't resume
 ```
 
 **Proxmox API for cmux integration:**
@@ -84,26 +103,29 @@ pct restore <vmid> --state-file /path/to/checkpoint
 // packages/shared/src/sandbox-providers/proxmox.ts
 export class ProxmoxProvider implements SandboxProvider {
   async pauseInstance(id: string): Promise<void> {
-    // CRIU checkpoint - preserves RAM state
-    await this.api.post(`/nodes/${node}/lxc/${id}/checkpoint`, {
-      stateFile: `/var/lib/cmux/checkpoints/${id}.criu`
+    // KVM suspend-to-disk - preserves RAM state
+    await this.api.post(`/nodes/${node}/qemu/${id}/status/suspend`, {
+      todisk: true
     });
   }
 
   async resumeInstance(id: string): Promise<void> {
-    // CRIU restore - resumes all processes
-    await this.api.post(`/nodes/${node}/lxc/${id}/restore`, {
-      stateFile: `/var/lib/cmux/checkpoints/${id}.criu`
-    });
+    // KVM resume - loads RAM from disk, processes continue
+    await this.api.post(`/nodes/${node}/qemu/${id}/status/resume`);
   }
 }
 ```
+
+**Trade-off: Startup Time**
+- KVM VMs: ~2-5s startup (slower than LXC ~100ms)
+- RAM resume: ~2-5s (loads memory from disk)
+- For faster startup without RAM snapshot: Use LXC (but lose process state)
 
 ---
 
 ### Resilient Multi-Provider Architecture
 
-> **Design Goal**: Keep Morph as original provider, add Proxmox as self-hosted replacement, support fallback and hybrid routing.
+> **Design Goal**: Keep Morph as original provider, add Proxmox KVM as self-hosted replacement, support fallback and hybrid routing.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -119,7 +141,7 @@ export class ProxmoxProvider implements SandboxProvider {
 │              ▼                               ▼                      │
 │       ┌─────────────┐                 ┌─────────────┐               │
 │       │MorphProvider│                 │ProxmoxProv. │               │
-│       │ (original)  │                 │ (CRIU)      │               │
+│       │ (original)  │                 │ (KVM VMs)   │               │
 │       └─────────────┘                 └─────────────┘               │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -243,11 +265,12 @@ SANDBOX_ROUTE_PROD=morph
 MORPH_API_KEY=xxx
 MORPH_ENABLED=true
 
-# Proxmox (self-hosted replacement with CRIU)
+# Proxmox (self-hosted replacement with KVM VMs)
 PROXMOX_API_URL=https://proxmox.internal:8006
 PROXMOX_API_TOKEN=xxx
 PROXMOX_NODE=pve1
 PROXMOX_ENABLED=true
+PROXMOX_USE_KVM=true  # Use KVM VMs for RAM snapshot support (not LXC)
 ```
 
 **Migration Strategy (Proxmox + Morph):**
@@ -272,16 +295,17 @@ Phase 4: Proxmox primary + Morph resilience (final state)
 ```
 
 **Security Note** (from sandboxing research):
+- KVM VMs provide hardware-level isolation (more secure than containers)
 - Containers share kernel = potential escape vulnerabilities (69% of incidents are misconfigs)
-- LXC with proper seccomp/AppArmor provides strong isolation for trusted environments
+- LXC with proper seccomp/AppArmor provides strong isolation for trusted environments (but NO RAM snapshot)
 - For untrusted code requiring MicroVM isolation, see comparison table in Appendix
 
 **Improvements**:
-- **Primary**: Implement Proxmox provider with CRIU for self-hosted production
-- **Hybrid approach**: Proxmox primary + Morph fallback for resilience
-- Target startup latency: <200ms with LXC (CRIU restore ~100-500ms)
+- **Primary**: Implement Proxmox provider with KVM VMs for self-hosted production
+- **Hybrid approach**: Proxmox KVM primary + Morph fallback for resilience
+- Target RAM resume latency: ~2-5s with KVM suspend-to-disk
 - Create `SandboxProvider` abstraction layer supporting Proxmox + Morph
-- RAM snapshots: CRIU checkpoint/restore for full process state preservation
+- RAM snapshots: `qm suspend --todisk` for full process state preservation
 
 **Code Changes Required**: Medium-High (API integration + provider abstraction)
 
@@ -464,17 +488,17 @@ server {
 | 2.1 | Set up local AI (Ollama + DeepSeek/Qwen models) | - | [ ] |
 | 2.2 | Implement hybrid AI routing (local simple, cloud complex) | - | [ ] |
 | 2.3 | Replace edge router with Nginx/Caddy; test WebSockets/CORS | - | [ ] |
-| 2.4 | **Deploy Proxmox VE** on Hetzner VPS; configure LXC + CRIU | - | [ ] |
+| 2.4 | **Deploy Proxmox VE** on Hetzner VPS; configure KVM VMs | - | [ ] |
 | 2.5 | Create `SandboxProvider` abstraction layer in cmux | - | [ ] |
-| 2.6 | Test CRIU checkpoint/restore with cmux services | - | [ ] |
+| 2.6 | Test KVM `qm suspend --todisk` / `qm resume` with cmux services | - | [ ] |
 
 ### Phase 3: Core Migrations (6-10 weeks)
 | Step | Task | Owner | Status |
 |------|------|-------|--------|
-| 3.1 | Implement `ProxmoxProvider` with CRIU pause/resume API parity | - | [ ] |
-| 3.2 | Create cmux base LXC template (all services pre-installed) | - | [ ] |
+| 3.1 | Implement `ProxmoxProvider` with KVM suspend/resume API parity | - | [ ] |
+| 3.2 | Create cmux base KVM VM template (all services pre-installed) | - | [ ] |
 | 3.3 | Test RAM snapshot: verify running processes resume correctly | - | [ ] |
-| 3.4 | Migrate 20% -> 50% of sandbox workloads to Proxmox | - | [ ] |
+| 3.4 | Migrate 20% -> 50% of sandbox workloads to Proxmox KVM | - | [ ] |
 | 3.5 | Optimize frontend/backend hosting (Cloudflare Pages + VPS) | - | [ ] |
 
 ### Phase 4: Full Optimization & Monitoring (10-12 weeks)
@@ -489,7 +513,7 @@ server {
 
 ## Detailed Implementation Notes
 
-### Morph Replacement with microsandbox (Primary) or Proxmox LXC (Fallback)
+### Morph Replacement with Proxmox KVM (Primary) or Firecracker/Kata (Alternative)
 
 **Services to replicate inside each sandbox:**
 1. `cmux-openvscode.service` - Web-based VS Code (port 39378)
@@ -511,27 +535,26 @@ server {
 
 ---
 
-#### Option A: microsandbox Implementation (RECOMMENDED)
+#### Option A: Proxmox KVM VMs (For RAM Snapshot / Full Workspace Resume)
 
-**Why microsandbox over Proxmox:**
-- MicroVM isolation (hardware-level) vs LXC (container namespace)
-- Simpler deployment: single `msb` binary vs Proxmox cluster setup
-- Built-in persistent project mode (`msr`) vs manual LXC snapshot management
-- Apache-2.0 license, purpose-built for code sandboxing
+**Use KVM VMs when:**
+- Long-running tasks that need workspace pause/resume
+- RAM snapshot is required (preserve running processes)
+- Full isolation needed
 
-**microsandbox Architecture:**
+**Proxmox KVM Architecture:**
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Host Server (Hetzner/DigitalOcean $20-50/mo)              │
-│  ├─ msb server (microsandbox daemon)                       │
-│  │   ├─ libkrun (MicroVM hypervisor)                       │
-│  │   └─ Networking (port mapping 39377-39381)              │
-│  └─ ./menv/ (persistent sandbox filesystems)               │
+│  Host Server (Proxmox VE on Hetzner/DigitalOcean)          │
+│  ├─ Proxmox API (:8006)                                    │
+│  │   ├─ KVM/QEMU hypervisor                                │
+│  │   └─ VM management (start, stop, suspend, resume)       │
+│  └─ /var/lib/vz/ (VM disk images + suspend state)          │
 └─────────────────────────────────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  MicroVM Sandbox Instance                                   │
+│  KVM VM Sandbox Instance                                    │
 │  ├─ cmux-openvscode.service (port 39378)                   │
 │  ├─ cmux-worker.service (port 39377)                       │
 │  ├─ cmux-proxy.service (port 39379)                        │
@@ -540,52 +563,93 @@ server {
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**microsandbox Implementation Steps:**
-1. Deploy `msb` server on Hetzner/DigitalOcean VPS
-   ```bash
-   curl -fsSL https://get.microsandbox.dev | sh
-   msb server start --port 8080
-   ```
-2. Create cmux base image with all services pre-installed
-3. Configure networking for port range 39377-39381
-4. Use `msr` (persistent mode) for stateful dev environments
-5. Use `msx` (ephemeral mode) for one-off agent tasks
-6. Implement `MicrosandboxProvider` in cmux codebase
+**KVM RAM Snapshot (VERIFIED):**
+```bash
+# Suspend VM (saves RAM to disk) - VERIFIED COMMAND
+qm suspend <vmid> --todisk
 
-**microsandbox SDK Integration:**
+# Resume VM (loads RAM from disk, processes continue)
+qm resume <vmid>
+```
+
+**KVM Provider Implementation:**
 ```typescript
-// packages/shared/src/sandbox-providers/microsandbox.ts
-import { Sandbox } from "microsandbox";
-
-export class MicrosandboxProvider implements SandboxProvider {
-  async startInstance(config: SandboxConfig): Promise<SandboxInstance> {
-    const sandbox = await Sandbox.create({
-      image: "cmux-base",
-      persistent: config.persistent ?? true,
-      ports: [39377, 39378, 39379, 39380, 39381],
-    });
-    return { id: sandbox.id, ports: sandbox.ports };
-  }
-
-  async stopInstance(id: string): Promise<void> {
-    await Sandbox.stop(id);
-  }
+// packages/shared/src/sandbox-providers/proxmox-kvm.ts
+export class ProxmoxKvmProvider implements SandboxProvider {
+  readonly supportsRamSnapshot = true;  // KVM supports RAM snapshot
 
   async pauseInstance(id: string): Promise<void> {
-    // microsandbox: stop preserves state in ./menv
-    await Sandbox.stop(id);
+    // Suspend VM to disk - saves full RAM state
+    await this.api.post(`/nodes/${node}/qemu/${id}/status/suspend`, {
+      todisk: true
+    });
+  }
+
+  async resumeInstance(id: string): Promise<void> {
+    // Resume VM - loads RAM from disk, processes continue
+    await this.api.post(`/nodes/${node}/qemu/${id}/status/resume`);
   }
 }
 ```
 
+**Trade-offs:**
+- Startup: ~2-5s (slower than LXC)
+- RAM resume: ~2-5s (loading memory from disk)
+- More resource overhead than containers
+
 ---
 
-#### Option B: Proxmox LXC Implementation (Fallback)
+#### Option B: Proxmox LXC (For Short-Lived / Ephemeral Tasks)
 
-**Use Proxmox LXC if:**
-- Need more mature/battle-tested infrastructure
-- Already have Proxmox expertise
-- Need true RAM snapshot support (CRIU)
+> [!warning] LXC does NOT support RAM snapshots
+> **`pct checkpoint` and `pct restore` commands DO NOT EXIST in Proxmox VE.**
+> Use LXC only for short-lived tasks that don't require workspace resume.
+
+**Use LXC when:**
+- Short-lived tasks (no need to pause/resume)
+- Fast startup is critical (~100ms)
+- Ephemeral agent runs
+- Cost optimization for high-volume, quick tasks
+
+**What LXC CAN do:**
+```bash
+pct snapshot <vmid> <name>    # Disk snapshot only (NO RAM)
+pct rollback <vmid> <name>    # Restore disk state (processes restart from scratch)
+pct start/stop <vmid>         # Container lifecycle
+pct clone <vmid> <newid>      # Clone from template
+```
+
+**What LXC CANNOT do:**
+- `pct checkpoint` - DOES NOT EXIST
+- `pct restore --state-file` - DOES NOT EXIST
+- CRIU integration - NOT supported in Proxmox VE
+
+**LXC Provider Implementation:**
+```typescript
+// packages/shared/src/sandbox-providers/proxmox-lxc.ts
+export class ProxmoxLxcProvider implements SandboxProvider {
+  readonly supportsRamSnapshot = false;  // LXC does NOT support RAM snapshot
+
+  async startInstance(config: SandboxConfig): Promise<SandboxInstance> {
+    // Clone from template for fast startup (~100ms)
+    const newId = await this.api.post(`/nodes/${node}/lxc/${templateId}/clone`);
+    await this.api.post(`/nodes/${node}/lxc/${newId}/status/start`);
+    return { id: newId, ... };
+  }
+
+  async pauseInstance(id: string): Promise<void> {
+    // LXC cannot preserve RAM - just stop the container
+    // Processes will restart from scratch on resume
+    await this.api.post(`/nodes/${node}/lxc/${id}/status/stop`);
+    console.warn("LXC pause: RAM state NOT preserved. Processes will restart.");
+  }
+
+  async resumeInstance(id: string): Promise<void> {
+    // Just restart the container - processes start fresh
+    await this.api.post(`/nodes/${node}/lxc/${id}/status/start`);
+  }
+}
+```
 
 **Proxmox LXC Implementation Steps:**
 1. Create base Ubuntu LXC template
@@ -595,8 +659,47 @@ export class MicrosandboxProvider implements SandboxProvider {
 5. Configure TigerVNC + xvfb
 6. Create systemd units mirroring Morph setup
 7. Configure networking (expose ports 39377-39381)
-8. Create template/snapshot from configured container
-9. Implement `ProxmoxProvider` in cmux codebase
+8. Convert to template: `pct template <vmid>`
+9. Implement `ProxmoxLxcProvider` in cmux codebase
+
+---
+
+#### Hybrid Routing: KVM + LXC
+
+**Route tasks to appropriate provider based on requirements:**
+
+```typescript
+// packages/shared/src/sandbox-providers/manager.ts
+export class SandboxProviderManager {
+  async getProvider(config: SandboxConfig): Promise<SandboxProvider> {
+    // Route based on task type
+    if (config.requiresRamSnapshot || config.workloadType === "long-running") {
+      // Use KVM for tasks needing pause/resume
+      return this.providers.get("proxmox-kvm");
+    }
+
+    if (config.workloadType === "ephemeral" || config.workloadType === "quick-task") {
+      // Use LXC for fast startup, short-lived tasks
+      return this.providers.get("proxmox-lxc");
+    }
+
+    // Default: KVM for safety (supports RAM snapshot)
+    return this.providers.get("proxmox-kvm");
+  }
+}
+```
+
+**Environment Configuration:**
+```env
+# Hybrid Proxmox setup
+PROXMOX_KVM_ENABLED=true     # For RAM snapshot tasks
+PROXMOX_LXC_ENABLED=true     # For ephemeral/quick tasks
+PROXMOX_DEFAULT=kvm          # Default to KVM (safer)
+
+# Routing rules
+SANDBOX_ROUTE_LONG_RUNNING=proxmox-kvm
+SANDBOX_ROUTE_EPHEMERAL=proxmox-lxc
+```
 
 ---
 
@@ -606,32 +709,38 @@ export class MicrosandboxProvider implements SandboxProvider {
 ```typescript
 // packages/shared/src/sandbox-providers/types.ts
 export interface SandboxProvider {
+  readonly name: string;
+  readonly supportsRamSnapshot: boolean;  // Critical distinction!
+
   startInstance(config: SandboxConfig): Promise<SandboxInstance>;
   stopInstance(id: string): Promise<void>;
   pauseInstance(id: string): Promise<void>;
+  resumeInstance(id: string): Promise<void>;
   getInstanceStatus(id: string): Promise<SandboxStatus>;
   listInstances(): Promise<SandboxInstance[]>;
 }
 
 // packages/shared/src/sandbox-providers/index.ts
-export function getSandboxProvider(): SandboxProvider {
-  const provider = process.env.SANDBOX_PROVIDER || "morph";
+export function getSandboxProvider(config?: SandboxConfig): SandboxProvider {
+  const provider = config?.preferredProvider || process.env.SANDBOX_PROVIDER || "morph";
+
   switch (provider) {
-    case "microsandbox": return new MicrosandboxProvider();
-    case "proxmox": return new ProxmoxProvider();
-    case "docker": return new DockerProvider();
+    case "proxmox-kvm": return new ProxmoxKvmProvider();   // RAM snapshot: YES
+    case "proxmox-lxc": return new ProxmoxLxcProvider();   // RAM snapshot: NO
+    case "docker": return new DockerProvider();             // RAM snapshot: NO
     case "morph":
-    default: return new MorphProvider();
+    default: return new MorphProvider();                    // RAM snapshot: YES
   }
 }
 ```
 
 **Migration Strategy:**
 1. Create abstraction layer with `MorphProvider` as default
-2. Implement `MicrosandboxProvider` for self-hosted
-3. Test in staging with `SANDBOX_PROVIDER=microsandbox`
+2. Implement `ProxmoxKvmProvider` (RAM snapshot) + `ProxmoxLxcProvider` (fast ephemeral)
+3. Test in staging with `SANDBOX_PROVIDER=proxmox-kvm`
 4. Gradual rollout: 20% -> 50% -> 80% of workloads
 5. Keep Morph as fallback for edge cases
+6. Route ephemeral tasks to LXC for cost optimization
 
 ---
 
@@ -716,12 +825,12 @@ if (process.env.OLLAMA_BASE_URL) {
 | Local LLM quality drop | Hybrid strategy; cloud fallback for complex tasks |
 | Data migration issues | Use staging env; rollback plans; Convex export/import |
 | WebSocket edge router bugs | Thorough testing; keep Cloudflare DNS as fallback |
-| **RAM snapshot is CRITICAL** | Only use Proxmox (CRIU) as primary + Morph as fallback |
-| CRIU compatibility issues | Test CRIU with all cmux services; some apps may not checkpoint cleanly |
+| **RAM snapshot is CRITICAL** | Use Proxmox KVM (not LXC) for tasks needing pause/resume + Morph fallback |
+| LXC does NOT support CRIU | Do NOT expect `pct checkpoint` - use LXC only for ephemeral tasks |
 | Proxmox setup complexity | Leverage existing Proxmox experience; use Ansible/Terraform for automation |
 | KVM not available on VPS | Verify KVM support before purchasing; Hetzner/DO both support nested virt |
-| Proxmox CRIU restore latency | Test restore times; may be 100-500ms vs Morph's instant resume |
-| Network interruption on restore | Clients need reconnect logic after CRIU restore; test WebSocket reconnection |
+| KVM suspend-to-disk latency | Test restore times; expect ~2-5s vs Morph's faster resume |
+| Network interruption on resume | Clients need reconnect logic after KVM resume; test WebSocket reconnection |
 
 ---
 
@@ -732,13 +841,18 @@ if (process.env.OLLAMA_BASE_URL) {
 3. **Use staging environments** for all migrations; maintain rollback capability
 4. **Integrate monitoring early** (Prometheus/Grafana + Sentry) for real-time cost tracking
 5. **Review ROI monthly** and adjust priorities based on actual savings
-6. **For sandbox migration**: **Proxmox LXC + CRIU as primary**, Morph as fallback - leverages your experience, supports RAM snapshots (CRITICAL)
+6. **For sandbox migration**: **Hybrid KVM + LXC** - KVM for RAM snapshots, LXC for fast ephemeral tasks
 
-**Sandbox Provider Architecture (Proxmox + Morph):**
-1. **Primary: Proxmox LXC + CRIU** - Self-host, your experience, CRIU provides RAM state
-2. **Fallback: Morph Cloud** - Keep enabled forever for resilience, automatic failover
+**Sandbox Provider Architecture (Hybrid Proxmox + Morph):**
+1. **Long-running tasks: Proxmox KVM** - `qm suspend --todisk` provides RAM snapshot
+2. **Ephemeral tasks: Proxmox LXC** - Fast startup (~100ms), no RAM snapshot needed
+3. **Fallback: Morph Cloud** - Keep enabled forever for resilience, automatic failover
 
-**Key Benefit**: Never fully dependent on one provider - graceful degradation if Proxmox fails, Morph as proven reliable fallback
+> [!danger] Critical Correction
+> **Proxmox LXC does NOT support CRIU checkpoint/restore.**
+> The `pct checkpoint` command does not exist. Use KVM VMs for RAM snapshots.
+
+**Key Benefit**: Never fully dependent on one provider - graceful degradation if Proxmox fails, Morph as proven reliable fallback. LXC provides cost optimization for high-volume ephemeral tasks.
 
 **Total Potential Savings: 70-85% ($300/mo target from current $1000-2000/mo)**
 
@@ -754,8 +868,8 @@ if (process.env.OLLAMA_BASE_URL) {
 |------------|-----------------|---------|----------|--------------|--------|
 | V8 Isolates | Runtime | ~1ms | Low | **No** | - |
 | WebAssembly | Runtime | ~10ms | Medium | **No** | - |
-| Docker/OCI | Namespace | ~10-50ms | Medium | **CRIU optional** | - |
-| **LXC + CRIU** | Container | ~100ms | Medium | **Yes** | Proxmox docs |
+| Docker/OCI | Namespace | ~10-50ms | Medium | **CRIU experimental** | - |
+| **Proxmox LXC** | Container | ~100ms | Medium | **No** (disk only) | Proxmox docs |
 | gVisor | App Kernel | ~100ms | High | **No** | - |
 | nsjail | Process | ~50ms | Medium-High | **No** | - |
 | **Firecracker** | MicroVM | ~125ms | Very High | **Yes** | GitHub docs |
@@ -764,16 +878,22 @@ if (process.env.OLLAMA_BASE_URL) {
 
 ### Platform Comparison - RAM Snapshot Verified (CRITICAL)
 
+> [!danger] Correction: Proxmox LXC + CRIU
+> **Previous versions incorrectly claimed Proxmox LXC supports CRIU.**
+> `pct checkpoint` and `pct restore` commands DO NOT EXIST in Proxmox VE.
+> CRIU integration is experimental only, NOT production-ready.
+
 | Platform | Technology | RAM Snapshot | Verified Source | cmux Fit |
 |----------|------------|--------------|-----------------|----------|
 | **Morph Cloud** | Proprietary | **Yes** | Production use | **Current** |
 | **Proxmox VM** | KVM/QEMU | **Yes** | `qm suspend --todisk` saves memory to disk | **Excellent** |
-| **Proxmox LXC+CRIU** | LXC + CRIU | **Yes** | CRIU checkpoint/restore | **Excellent** |
+| **Proxmox LXC** | LXC | **No** (disk only) | `pct snapshot` - NO RAM state | Fast ephemeral only |
 | **e2b** | Firecracker | **Yes** | `betaPause()`/`connect()` - full memory file | Good (not in plan) |
 | **Firecracker** | MicroVM | **Yes** | "full copy of guest memory" - verified | Good (not in plan) |
+| **Kata Containers** | Cloud-Hypervisor | **Yes** | `VmSnapshotPut` / `VmRestorePut` | K8s integration |
 | **microsandbox** | libkrun | **No** | Only in-session state persistence | **Not suitable** |
 | **Daytona** | Containers | **No** | Filesystem only | **Not suitable** |
-| Docker + CRIU | Docker | **Possible** | Requires CRIU setup | Possible |
+| Docker + CRIU | Docker | **Experimental** | Requires CRIU setup, unreliable | Not recommended |
 
 ### Verified: Solutions WITHOUT RAM Snapshot (Filtered Out)
 
@@ -781,6 +901,7 @@ These solutions **do NOT support snapshotting complete guest memory**:
 
 | Solution | What They DO Support | What They DON'T Support |
 |----------|---------------------|------------------------|
+| **Proxmox LXC** | Disk snapshots (`pct snapshot`), fast startup | RAM snapshot, process resume (NO CRIU) |
 | **microsandbox** | Filesystem persistence (`./menv`), in-session variable state | RAM snapshot, process resume after stop |
 | **Daytona** | Filesystem archiving, container stop/start | RAM snapshot, running process preservation |
 | **nsjail** | Process isolation, resource limits | Any state persistence |
@@ -790,10 +911,11 @@ These solutions **do NOT support snapshotting complete guest memory**:
 
 | Solution | RAM Snapshot Method | Verified By |
 |----------|---------------------|-------------|
-| **Proxmox VM (KVM)** | `qm suspend ID --todisk` - "VM's memory content saved to disk" | Proxmox docs Context7 |
-| **Proxmox LXC + CRIU** | CRIU checkpoint - full process state | Proxmox docs |
+| **Proxmox VM (KVM)** | `qm suspend ID --todisk` - "VM's memory content saved to disk" | Proxmox docs |
+| **Firecracker** | Memory-mapped snapshot files - "full copy of guest memory" | Firecracker GitHub |
+| **Kata Containers** | Cloud-Hypervisor/QEMU snapshot | Kata docs |
 | **e2b** | Firecracker snapshot - "full copy of guest memory" | e2b docs Context7 |
-| **Firecracker (raw)** | Memory-mapped snapshot files | Firecracker GitHub |
+| **Morph Cloud** | Native VM snapshot | Production verified |
 
 ### Firecracker Snapshot Capability (from GitHub docs)
 ```
@@ -814,7 +936,11 @@ qm suspend ID --todisk
 
 ### References
 - [Proxmox VE Docs](https://pve.proxmox.com/pve-docs/) - verified via Context7
+- [Proxmox Forum - CRIU](https://forum.proxmox.com/tags/criu/) - CRIU not supported in Proxmox LXC
+- [CRIU GitHub Issue #1430](https://github.com/checkpoint-restore/criu/issues/1430) - LXC integration issues
+- [Proxmox Roadmap](https://pve.proxmox.com/wiki/Roadmap) - CRIU not on roadmap
 - [Firecracker Snapshot Support](https://github.com/firecracker-microvm/firecracker/blob/main/docs/snapshotting/snapshot-support.md)
+- [Kata Containers](https://github.com/kata-containers/kata-containers) - K8s-native MicroVM
 - [e2b Persistence Docs](https://github.com/e2b-dev/E2B) - verified via Context7
 - [microsandbox](https://github.com/microsandbox/microsandbox) - verified NO RAM snapshot via Context7
-- [CRIU](https://criu.org/) - Checkpoint/Restore In Userspace
+- [CRIU](https://criu.org/) - Checkpoint/Restore In Userspace (NOT integrated with Proxmox)
