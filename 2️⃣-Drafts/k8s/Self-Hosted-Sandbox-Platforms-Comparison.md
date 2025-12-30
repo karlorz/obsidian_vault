@@ -10,14 +10,14 @@
 
 ### AI Sandbox / MicroVM Platforms
 
-| Platform | Self-Host | Web UI | Snapshot | Pause/Resume | License | Deploy Ease | Recommendation |
-|----------|-----------|--------|----------|--------------|---------|-------------|----------------|
-| **Coder** ⭐ | ✅ Easy | ✅ Full | ❌ | ❌ | AGPL-3.0 | ⭐⭐⭐⭐⭐ | **Best self-host CDE** |
-| **Daytona** | ⚠️ Complex | ✅ Full | ✅ | ✅ | AGPL-3.0 | ⭐⭐ | Best features, hard self-host |
-| **E2B** | ✅ (GCP) | ❌ | ✅ | ✅ | Apache-2.0 | ⭐⭐ | Complex self-host |
-| **Microsandbox** | ✅ | ❌ CLI | ✅ Build | ❌ | Apache-2.0 | ⭐⭐⭐⭐⭐ | **Simplest AI sandbox** |
-| **OpenNebula** | ✅ | ✅ Sunstone | ✅ | ✅ | Apache-2.0 | ⭐⭐⭐ | Enterprise |
-| **Kata + K8s** | ✅ | ❌ | ✅ CLH | ✅ | Apache-2.0 | ⭐⭐⭐ | K8s native |
+| Platform         | Self-Host  | Web UI     | Snapshot | Pause/Resume | License    | Deploy Ease | Recommendation                |
+| ---------------- | ---------- | ---------- | -------- | ------------ | ---------- | ----------- | ----------------------------- |
+| **Coder** ⭐      | ✅ Easy     | ✅ Full     | ❌        | ❌            | AGPL-3.0   | ⭐⭐⭐⭐⭐       | **Best self-host CDE**        |
+| **Daytona**      | ⚠️ Complex | ✅ Full     | ✅        | ✅            | AGPL-3.0   | ⭐⭐          | Best features, hard self-host |
+| **E2B**          | ✅ (GCP)    | ❌          | ✅        | ✅            | Apache-2.0 | ⭐⭐          | Complex self-host             |
+| **Microsandbox** | ✅          | ❌ CLI      | ✅ Build  | ❌            | Apache-2.0 | ⭐⭐⭐⭐⭐       | **Simplest AI sandbox**       |
+| **OpenNebula**   | ✅          | ✅ Sunstone | ✅        | ✅            | Apache-2.0 | ⭐⭐⭐         | Enterprise                    |
+| **Kata + K8s**   | ✅          | ❌          | ✅ CLH    | ✅            | Apache-2.0 | ⭐⭐⭐         | K8s native                    |
 
 **Winner for self-hosted dev environments: Coder** - Single binary, Web UI, Terraform templates, 50M+ downloads
 **Winner for AI sandbox (simple): Microsandbox** - Single binary, no dependencies, MCP native
