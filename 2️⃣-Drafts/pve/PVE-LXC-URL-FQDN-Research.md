@@ -4,6 +4,7 @@
 > **Constraint:** PVE v8 behind home router, no port forwarding/DMZ allowed.
 > **Status:** Tested and working with Cloudflare Tunnel (2025-12-27)
 > **PR:** https://github.com/karlorz/cmux/pull/27
+> **Update (2025-12-31):** URL pattern refactored to Morph-consistent `port-{port}-vm-{vmid}.{domain}`
 
 ---
 
@@ -58,26 +59,46 @@
 │  └─────────────────────────────────────────────────────────────┘ │
 └─────────────────────────┬─────────────────────────────────────────┘
                           │
-              https://{service}-{vmid}.yourdomain.com
+              https://port-{port}-vm-{vmid}.yourdomain.com
 ```
 
 ---
 
-## URL Pattern (Free Cloudflare Universal SSL)
+## URL Pattern (Morph-Consistent)
 
-**Important:** Cloudflare's free Universal SSL only covers single-level wildcards (`*.domain.com`), NOT multi-level (`*.sub.domain.com`). For free SSL, use:
+### Pattern Comparison
+
+| Provider | Pattern | Example |
+|----------|---------|---------|
+| **Morph Cloud** | `port-{port}-morphvm_{id}.http.cloud.morph.so` | `port-39378-morphvm_mmcz8L6eoJHtLqFz3.http.cloud.morph.so` |
+| **PVE LXC/VM** | `port-{port}-vm-{vmid}.{domain}` | `port-39378-vm-200.alphasolves.com` |
+
+### New URL Pattern
+
+The PVE URL pattern uses **port-first** format like Morph Cloud, with a single Caddy rule handling all services:
 
 ```
-https://vscode-200.yourdomain.com    (works with free SSL) - VSCode Web UI
-https://worker-200.yourdomain.com    (works with free SSL) - Worker service
-https://exec-200.yourdomain.com      (works with free SSL) - cmux-execd HTTP exec
-https://xterm-200.yourdomain.com     (works with free SSL) - Xterm terminal
-https://preview-200.yourdomain.com   (works with free SSL) - Dev server preview
+https://port-39378-vm-200.yourdomain.com   - VSCode (port 39378)
+https://port-39377-vm-200.yourdomain.com   - Worker (port 39377)
+https://port-39375-vm-200.yourdomain.com   - Exec (port 39375)
+https://port-39380-vm-200.yourdomain.com   - VNC (port 39380)
+https://port-39383-vm-200.yourdomain.com   - Xterm (port 39383)
+https://port-5173-vm-200.yourdomain.com    - Preview (port 5173)
 ```
 
-NOT:
+### Benefits
+
+1. **Morph-consistent**: Same `port-{port}-vm-{id}` structure as Morph Cloud
+2. **Single Caddy rule**: One regex handles all services, no hardcoded service names
+3. **Extensible**: Any new port works automatically without config changes
+4. **Easy to identify**: `vm-{vmid}` makes it easy to identify in PVE host management
+
+### Note on Free Cloudflare Universal SSL
+
+Cloudflare's free Universal SSL covers single-level wildcards (`*.domain.com`). The pattern works with free SSL:
+
 ```
-https://vscode-200.sandbox.yourdomain.com  (requires paid Advanced Certificate)
+https://port-39378-vm-200.yourdomain.com  (works with free SSL)
 ```
 
 ---
@@ -194,40 +215,17 @@ ingress:
 
 ```caddyfile
 # /etc/caddy/Caddyfile.cmux
+# Morph-consistent URL pattern: port-{port}-vm-{vmid}.{domain}
 :8080 {
-    # VSCode service
-    @vscode header_regexp vmid Host ^vscode-(\d+)\.
-    handle @vscode {
-        reverse_proxy cmux-{re.vmid.1}.lan:39378
-    }
-
-    # Worker service
-    @worker header_regexp vmid Host ^worker-(\d+)\.
-    handle @worker {
-        reverse_proxy cmux-{re.vmid.1}.lan:39377
-    }
-
-    # Xterm service
-    @xterm header_regexp vmid Host ^xterm-(\d+)\.
-    handle @xterm {
-        reverse_proxy cmux-{re.vmid.1}.lan:39376
-    }
-
-    # Exec service (cmux-execd HTTP exec daemon)
-    @exec header_regexp vmid Host ^exec-(\d+)\.
-    handle @exec {
-        reverse_proxy cmux-{re.vmid.1}.lan:39375
-    }
-
-    # Preview service (port 5173)
-    @preview header_regexp vmid Host ^preview-(\d+)\.
-    handle @preview {
-        reverse_proxy cmux-{re.vmid.1}.lan:5173
+    # Single rule handles all services: port-{port}-vm-{vmid}.{domain}
+    @service header_regexp match Host ^port-(\d+)-vm-(\d+)\.
+    handle @service {
+        reverse_proxy cmux-{re.match.2}.lan:{re.match.1}
     }
 
     # Default: 404
     handle {
-        respond "cmux sandbox not found" 404
+        respond "Use format: port-{port}-vm-{vmid}.{domain}" 404
     }
 }
 ```
@@ -308,14 +306,14 @@ For API endpoints or webhooks that need public access:
 │                        │                                        │
 │  ┌─────────────────────┼────────────────────────────────────┐   │
 │  │              Caddy (:8080)                               │   │
-│  │  vscode-200.* → cmux-200.lan:39378                      │   │
-│  │  worker-200.* → cmux-200.lan:39377                      │   │
-│  │  exec-200.*   → cmux-200.lan:39375                      │   │
+│  │  port-39378-vm-200.* -> cmux-200.lan:39378              │   │
+│  │  port-39377-vm-200.* -> cmux-200.lan:39377              │   │
+│  │  port-39375-vm-200.* -> cmux-200.lan:39375              │   │
 │  └─────────────────────┬────────────────────────────────────┘   │
 │                        │                                        │
 │  ┌─────────────────────┼────────────────────────────────────┐   │
 │  │           cloudflared (outbound only)                    │   │
-│  │  *.yourdomain.com → localhost:8080                      │   │
+│  │  *.yourdomain.com -> localhost:8080                      │   │
 │  └─────────────────────┬────────────────────────────────────┘   │
 └────────────────────────┼────────────────────────────────────────┘
                          │
@@ -330,8 +328,8 @@ For API endpoints or webhooks that need public access:
 │  - WAF (basic protection)                                      │
 └────────────────────────┬───────────────────────────────────────┘
                          │
-        https://vscode-200.yourdomain.com
-        https://worker-200.yourdomain.com
+        https://port-39378-vm-200.yourdomain.com
+        https://port-39377-vm-200.yourdomain.com
 ```
 
 ---
@@ -354,7 +352,7 @@ For API endpoints or webhooks that need public access:
 ### Per-Sandbox (Automated via API)
 - [ ] Clone from template (`pct clone`)
 - [ ] Start container (`pct start`)
-- [ ] URL available: `https://{service}-{vmid}.yourdomain.com`
+- [ ] URL available: `https://port-{port}-vm-{vmid}.yourdomain.com`
 
 ---
 
@@ -412,10 +410,10 @@ Update your Caddy configuration to route `pve.alphasolves.com` to the local PVE 
         }
     }
 
-    # VSCode service
-    @vscode header_regexp vmid Host ^vscode-(\d+)\.
-    handle @vscode {
-        reverse_proxy cmux-{re.vmid.1}.lan:39378
+    # Generic port-based routing (Morph-consistent)
+    @service header_regexp match Host ^port-(\d+)-vm-(\d+)\.
+    handle @service {
+        reverse_proxy cmux-{re.match.2}.lan:{re.match.1}
     }
 
     # ... rest of existing config ...
@@ -538,14 +536,14 @@ The `cmux-execd` service runs inside each LXC container and provides HTTP-based 
 |----------|-------|
 | **Port** | 39375 |
 | **Protocol** | HTTP |
-| **URL Pattern** | `https://exec-{vmid}.{domain}/exec` |
+| **URL Pattern** | `https://port-39375-vm-{vmid}.{domain}/exec` |
 | **Systemd Unit** | `cmux-execd.service` |
 
 ### API Endpoint
 
 ```bash
-# Execute a command
-curl -X POST https://exec-200.alphasolves.com/exec \
+# Execute a command (Morph-consistent URL pattern)
+curl -X POST https://port-39375-vm-200.alphasolves.com/exec \
   -H "Content-Type: application/json" \
   -d '{"command": "echo hello", "cwd": "/workspace"}'
 
@@ -597,11 +595,11 @@ pct clone 9000 200 --hostname cmux-200 --full 0
 pct start 200
 pct exec 200 -- systemctl status cmux-execd
 
-# Test public URL
-curl -I https://vscode-200.yourdomain.com
+# Test public URL (Morph-consistent pattern)
+curl -I https://port-39378-vm-200.yourdomain.com
 
 # Test exec service via tunnel
-curl -X POST https://exec-200.alphasolves.com/exec \
+curl -X POST https://port-39375-vm-200.alphasolves.com/exec \
   -H "Content-Type: application/json" \
   -d '{"command": "whoami"}'
 
@@ -611,7 +609,7 @@ curl -k https://pve.alphasolves.com/api2/json/version
 
 ---
 
-## Tested Configuration (2025-12-27)
+## Tested Configuration (2025-12-31)
 
 | Component | Version | Status |
 |-----------|---------|--------|
@@ -620,24 +618,26 @@ curl -k https://pve.alphasolves.com/api2/json/version
 | Caddy | 2.10.2 | Working |
 | Cloudflare DNS | Universal SSL | Working |
 | Tunnel ID | `6e04bb92-1500-44a7-b469-713cafa9ee5f` | Active |
+| URL Pattern | `port-{port}-vm-{vmid}` | Updated |
 
-**Working URLs:**
+**Working URLs (Morph-consistent pattern):**
 - `https://pve.alphasolves.com` - PVE API (via tunnel)
-- `https://vscode-200.alphasolves.com` - VSCode Web UI
-- `https://worker-200.alphasolves.com` - Worker service
-- `https://exec-200.alphasolves.com` - Exec service
+- `https://port-39378-vm-200.alphasolves.com` - VSCode (port 39378)
+- `https://port-39377-vm-200.alphasolves.com` - Worker (port 39377)
+- `https://port-39375-vm-200.alphasolves.com` - Exec (port 39375)
 
 ---
 
 ## Port Reference
 
-| Service | Port | URL Pattern | Description |
-|---------|------|-------------|-------------|
-| VSCode | 39378 | `vscode-{vmid}.domain` | VSCode Web UI |
-| Worker | 39377 | `worker-{vmid}.domain` | Worker service |
-| Xterm | 39376 | `xterm-{vmid}.domain` | Xterm terminal |
-| Exec | 39375 | `exec-{vmid}.domain` | cmux-execd HTTP exec |
-| Preview | 5173 | `preview-{vmid}.domain` | Dev server preview |
+| Service | Port | URL Pattern (Morph-consistent) | Description |
+|---------|------|--------------------------------|-------------|
+| VSCode | 39378 | `port-39378-vm-{vmid}.domain` | VSCode Web UI |
+| Worker | 39377 | `port-39377-vm-{vmid}.domain` | Worker service |
+| Xterm | 39383 | `port-39383-vm-{vmid}.domain` | Xterm terminal |
+| Exec | 39375 | `port-39375-vm-{vmid}.domain` | cmux-execd HTTP exec |
+| VNC | 39380 | `port-39380-vm-{vmid}.domain` | noVNC websockify |
+| Preview | 5173 | `port-5173-vm-{vmid}.domain` | Dev server preview |
 
 ---
 
