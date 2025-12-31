@@ -35,56 +35,116 @@ This PR adds Proxmox VE (PVE) LXC containers as an alternative sandbox provider 
 ## Architecture Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                          PVE LXC SANDBOX ARCHITECTURE                            │
-├──────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                   │
-│  ┌───────────────────────┐      ┌──────────────────────┐                        │
-│  │   apps/www (Hono)     │      │   apps/client        │                        │
-│  │   Backend API         │◄────►│   Frontend SPA       │                        │
-│  └──────────┬────────────┘      └──────────────────────┘                        │
-│             │                                                                    │
-│  ┌──────────▼────────────┐                                                      │
-│  │  sandbox-provider     │ ← Detects Morph or PVE based on env vars             │
-│  │  sandbox-instance     │ ← Unified interface for both providers               │
-│  └──────────┬────────────┘                                                      │
-│             │                                                                    │
-│  ┌──────────┴────────────────────────────────────────────────────┐              │
-│  │                    PROVIDER LAYER                              │              │
-│  │  ┌──────────────────┐         ┌────────────────────────────┐│              │
-│  │  │  MorphCloudClient│         │   PveLxcClient            ││              │
-│  │  │  (morphcloud npm)│         │   (pve-lxc-client.ts)     ││              │
-│  │  └──────────────────┘         └────────────────────────────┘│              │
-│  └────────────────────────────────────────────────────────────────┘              │
-│                                     │                                            │
-│                    ┌────────────────▼────────────────┐                          │
-│                    │     Proxmox VE Host             │                          │
-│                    │  ┌────────────────────────────┐ │                          │
-│                    │  │  LXC Container (cmux-XXX)  │ │                          │
-│                    │  │                            │ │                          │
-│                    │  │  ┌──────────────────────┐  │ │                          │
-│                    │  │  │  apps/server         │  │ │  ← Claude Code/Codex/  │
-│                    │  │  │  (CLI executor)      │  │ │    task runtime        │
-│                    │  │  │  ├─ Socket.IO        │  │ │                        │
-│                    │  │  │  ├─ Express server   │  │ │                        │
-│                    │  │  │  └─ AI SDK (Vercel) │  │ │                        │
-│                    │  │  └──────────────────────┘  │ │                        │
-│                    │  │                            │ │                        │
-│                    │  │  ├─ cmux-execd (39375)    │ │                          │
-│                    │  │  ├─ worker (39377)        │ │                          │
-│                    │  │  ├─ vscode (39378)        │ │                          │
-│                    │  │  ├─ vnc (39380)           │ │                          │
-│                    │  │  └─ xterm (39383)         │ │                          │
-│                    │  └────────────────────────────┘ │                          │
-│                    │           │                      │                          │
-│                    │  ┌────────▼──────────┐          │                          │
-│                    │  │ Cloudflare Tunnel │          │                          │
-│                    │  │ + Caddy (routing) │          │                          │
-│                    │  └───────────────────┘          │                          │
-│                    └─────────────────────────────────┘                          │
-│                                                                                   │
-└──────────────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                    CMUX WITH PVE LXC: SOCKET.IO CONNECTION MODEL                     │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                        │
+│  ┌──────────────────────────┐        ┌──────────────────────────┐                     │
+│  │   apps/www (Hono)        │        │   apps/client (SPA)      │                     │
+│  │   Backend API            │◄──────►│   Frontend Dashboard     │                     │
+│  │   Port: 9779             │ (REST) │   Port: 5173             │                     │
+│  └──────────┬───────────────┘        └──────────────────────────┘                     │
+│             │                                 │                                       │
+│             │ Manages sandbox                 │ Connects to Global apps/server        │
+│             │ lifecycle via REST              │ via Socket.IO (REQUIRED)              │
+│             │ (/api/sandboxes/*)              │                                       │
+│             │                                 ▼                                       │
+│             │                    ┌────────────────────────────────┐                   │
+│             │                    │ Global apps/server             │                   │
+│             │                    │ (SEPARATE DEPLOYMENT)          │                   │
+│             │                    │ Port: 9776                     │                   │
+│             │                    │ URL: NEXT_PUBLIC_SERVER_ORIGIN │                   │
+│             │                    │ (e.g., cmux-server.example.com)│                   │
+│             │                    │                                │                   │
+│             │                    │ Purpose:                       │                   │
+│             │                    │ - Dashboard connectivity       │                   │
+│             │                    │ - Notifications & status       │                   │
+│             │                    │ - Editor availability          │                   │
+│             │                    │ - Global state management      │                   │
+│             │                    └────────────────────────────────┘                   │
+│             │                                 ▲                                       │
+│             │ Detects provider                │ Must be running                       │
+│             │ (Morph or PVE)                  │ for dashboard to work                 │
+│             │                                 │                                       │
+│  ┌──────────▼────────────────────────────────┼──────────────────────────────────┐    │
+│  │            SANDBOX PROVIDER ABSTRACTION                                      │    │
+│  │  (Unified interface for both Morph & PVE)                                    │    │
+│  │                                                                              │    │
+│  │  ┌─────────────────────────┐         ┌──────────────────────────────┐       │    │
+│  │  │ Morph Cloud Client      │         │ PVE LXC Client              │       │    │
+│  │  │ - Morphcloud API        │         │ - Proxmox VE API            │       │    │
+│  │  │ - Pre-built snapshots   │         │ - Manual snapshot build      │       │    │
+│  │  └─────────────────────────┘         └──────────────────────────────┘       │    │
+│  └──────────────────────────────────────────────────────────────────────────────┘    │
+│                  │                                    │                               │
+│                  ▼                                    ▼                               │
+│  ┌─────────────────────────────────┐  ┌─────────────────────────────────────┐       │
+│  │    Morph Cloud VM               │  │    Proxmox VE Host                  │       │
+│  │ (morphvm_XXXXX)                 │  │  ┌────────────────────────────────┐ │       │
+│  │                                 │  │  │ LXC Container (cmux-{vmid})    │ │       │
+│  │ ┌───────────────────────────┐   │  │  │                                │ │       │
+│  │ │   apps/server             │   │  │  │ ┌──────────────────────────┐  │ │       │
+│  │ │   (Task Executor)         │   │  │  │ │  apps/server             │  │ │       │
+│  │ │   Socket.IO on 9776       │   │  │  │ │  (Task Executor)         │  │ │       │
+│  │ │   ├─ Agent spawning       │   │  │  │ │  Socket.IO on 9776       │  │ │       │
+│  │ │   ├─ Git operations       │   │  │  │ │  ├─ Agent spawning       │  │ │       │
+│  │ │   ├─ AI SDK integration   │   │  │  │ │  ├─ Git operations       │  │ │       │
+│  │ │   └─ Real-time updates    │   │  │  │ │  ├─ AI SDK integration   │  │ │       │
+│  │ └───────────────────────────┘   │  │  │ │  └─ Real-time updates    │  │ │       │
+│  │                                 │  │  │ └──────────────────────────┘  │ │       │
+│  │ Services:                       │  │  │ Services:                      │ │       │
+│  │ ├─ VSCode (39378)               │  │  │ ├─ VSCode (39378)              │ │       │
+│  │ ├─ Worker (39377)               │  │  │ ├─ Worker (39377)              │ │       │
+│  │ ├─ Xterm (39383)                │  │  │ ├─ Xterm (39383)               │ │       │
+│  │ ├─ Exec (39375)                 │  │  │ ├─ Exec (39375)                │ │       │
+│  │ └─ VNC (39380)                  │  │  │ └─ VNC (39380)                 │ │       │
+│  │                                 │  │  │                                │ │       │
+│  │ Per-Task URL:                   │  │  │ Per-Task URL:                  │ │       │
+│  │ port-9776-morphvm_{id}.         │  │  │ port-9776-vm-{vmid}.           │ │       │
+│  │ cloud.morph.so                  │  │  │ {domain} (via Cloudflare)      │ │       │
+│  └─────────────────────────────────┘  │  │                                │ │       │
+│                                        │  │ ┌──────────────────────────┐  │ │       │
+│                                        │  │ │ Cloudflare Tunnel        │  │ │       │
+│                                        │  │ │ + Caddy (reverse proxy)  │  │ │       │
+│                                        │  │ │ Routing logic:           │  │ │       │
+│                                        │  │ │ port-{port}-vm-{vmid}    │  │ │       │
+│  │                                        │  │ └──────────────────────────┘  │ │       │
+│  │                                        │  └────────────────────────────────┘ │       │
+│  │                                        └──────────────────────────────────────┘       │
+│  └───────────────────────────────────────────────────────────────────────────────────┘
+│                                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Socket.IO Connection Model (CRITICAL - DO NOT MISS)
+
+**cmux uses TWO independent Socket.IO connections:**
+
+#### 1. Global Connection (Required for Dashboard)
+- **Server:** `apps/server` running on global infrastructure (SEPARATE deployment)
+- **URL:** `NEXT_PUBLIC_SERVER_ORIGIN` (e.g., `wss://cmux-server.example.com/socket.io/`)
+- **Port:** 9776
+- **Purpose:**
+  - Dashboard connectivity
+  - Real-time notifications
+  - Editor availability status
+  - Global app state
+- **Must be running:** YES - without it, dashboard shows Socket.IO connection errors
+- **Example Error:** `WebSocket connection to 'wss://cmux-server.karldigi.dev/socket.io/?auth=...' FAILED`
+
+#### 2. Per-Task Connection (Ephemeral)
+- **Server:** `apps/server` inside sandbox (Morph VM or PVE container)
+- **URL (Morph):** `wss://port-9776-morphvm_{id}.cloud.morph.so/socket.io/`
+- **URL (PVE):** `wss://port-9776-vm-{vmid}.example.com/socket.io/` (via Cloudflare Tunnel)
+- **Port:** 9776
+- **Purpose:**
+  - Task execution communication
+  - Agent spawning and management
+  - Git operations in task context
+  - Real-time diff computation
+  - Terminal I/O
+- **Created when:** User opens a task
+- **Destroyed when:** Task completes or user closes it
 
 ---
 
