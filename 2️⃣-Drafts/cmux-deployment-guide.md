@@ -196,10 +196,11 @@ MORPH_API_KEY=morph_...
 
 **Option B: PVE LXC**
 ```bash
-PVE_API_URL=https://pve.example.com
+PVE_API_URL=https://pve.example.com:8006
 PVE_API_TOKEN=root@pam!mytoken=secret-uuid
 PVE_PUBLIC_DOMAIN=example.com
 # Optional: PVE_NODE (auto-detected)
+# Optional: PVE_VERIFY_TLS=true  # Verify TLS certs (default false for self-signed)
 ```
 
 **Optional: Force Provider**
@@ -330,7 +331,7 @@ gh workflow run "Daily Morph Snapshot" --repo your/cmux-fork --ref main
 ### Backend Environment Variables
 
 ```bash
-PVE_API_URL=https://pve.example.com
+PVE_API_URL=https://pve.example.com:8006
 PVE_API_TOKEN=root@pam!cmux=12345678-1234-1234-1234-1234567890ab
 PVE_PUBLIC_DOMAIN=example.com
 
@@ -583,9 +584,10 @@ BASE_APP_URL=http://localhost:9779
 # Sandbox (choose one)
 MORPH_API_KEY=morph_...
 # OR:
-# PVE_API_URL=https://pve.example.com
+# PVE_API_URL=https://pve.example.com:8006
 # PVE_API_TOKEN=root@pam!token=secret
 # PVE_PUBLIC_DOMAIN=example.com
+# PVE_VERIFY_TLS=true
 ```
 
 ### Start Development

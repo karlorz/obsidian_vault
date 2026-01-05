@@ -248,29 +248,21 @@ export class SandboxProviderManager {
 }
 ```
 
-**Environment Configuration:**
+**Environment Configuration (Current vs Planned):**
 ```env
-# Primary provider (recommended: proxmox for self-host with RAM snapshot)
-SANDBOX_PRIMARY_PROVIDER=proxmox
-
-# Fallback chain (Morph as reliable fallback)
-SANDBOX_FALLBACK_PROVIDERS=morph
-
-# Workload routing (optional)
-SANDBOX_ROUTE_DEV=proxmox
-SANDBOX_ROUTE_PROD=morph
-
-# Provider-specific configs
-# Morph (original - keep as fallback)
+# Current (implemented)
+SANDBOX_PROVIDER=pve-lxc   # or morph
 MORPH_API_KEY=xxx
-MORPH_ENABLED=true
+PVE_API_URL=https://pve.example.com:8006
+PVE_API_TOKEN=xxx
+PVE_NODE=pve1
 
-# Proxmox (self-hosted replacement with KVM VMs)
-PROXMOX_API_URL=https://proxmox.internal:8006
-PROXMOX_API_TOKEN=xxx
-PROXMOX_NODE=pve1
-PROXMOX_ENABLED=true
-PROXMOX_USE_KVM=true  # Use KVM VMs for RAM snapshot support (not LXC)
+# Planned (not implemented yet)
+# SANDBOX_PRIMARY_PROVIDER=proxmox
+# SANDBOX_FALLBACK_PROVIDERS=morph
+# SANDBOX_ROUTE_DEV=proxmox
+# SANDBOX_ROUTE_PROD=morph
+# PROXMOX_USE_KVM=true
 ```
 
 **Migration Strategy (Proxmox + Morph):**
@@ -955,4 +947,3 @@ Standardized provider naming across cmux codebase to use only three canonical na
 - `morph` - Morph Cloud provider (original)
 - `pve-lxc` - Proxmox VE LXC containers (fast ephemeral tasks, no RAM snapshot)
 - `pve-vm` - Proxmox VE KVM VMs (RAM snapshot support via `qm suspend --todisk`)
-
