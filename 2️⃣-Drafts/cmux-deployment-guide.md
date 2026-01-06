@@ -354,6 +354,17 @@ export CF_DOMAIN="example.com"
 curl -fsSL https://raw.githubusercontent.com/karlorz/cmux/main/scripts/pve/pve-tunnel-setup.sh | bash -s -- setup
 ```
 
+### Cloudflare Tunnel and Caddy Config Paths
+
+Default locations on the PVE host (used by `scripts/pve/pve-tunnel-setup.sh`):
+
+- Cloudflare Tunnel config: `/etc/cloudflared/config.yml`
+- Caddy config: `/etc/caddy/Caddyfile.cmux`
+- Cloudflare systemd unit: `/etc/systemd/system/cloudflared.service`
+- Caddy systemd unit: `/etc/systemd/system/caddy-cmux.service`
+
+Overrides are available via `CLOUDFLARED_CONFIG_DIR` and `CADDY_CONFIG_DIR`.
+
 ### Build Template & Snapshots
 
 ```bash
