@@ -32,6 +32,8 @@ EOF
 ```
 
 Outputs are under `apps/client/dist-electron/`.
+If you omit `NEXT_PUBLIC_CMUX_PROTOCOL`, the fork defaults to `cmux-next`.
+User data lives at `~/Library/Application Support/com.karlorz.cmux`.
 
 If macOS blocks the app:
 
@@ -47,7 +49,7 @@ Use the fork config to avoid conflicts with upstream:
 ```bash
 cd apps/client
 bunx electron-vite build -c electron.vite.config.ts
-bunx electron-builder --config apps/client/electron-builder.fork.json --mac
+bunx electron-builder --config electron-builder.fork.json --mac
 ```
 
 ## Signed build (arm64)
@@ -85,6 +87,26 @@ bash scripts/publish-build-mac-arm64.sh --env-file .env.codesign
 
 Output: `apps/client/dist-electron/cmux-<version>-arm64.dmg`.
 
+## Unsigned macOS release (no Apple Developer account)
+
+You can publish unsigned mac builds from GitHub Actions. Users will need to
+manually allow the app in macOS security settings.
+
+Workflow: `.github/workflows/release-on-tag.yml` jobs:
+- `macos-arm64-unsigned`
+- `macos-universal-unsigned`
+
+Required secrets in the `electron` environment:
+- `NEXT_PUBLIC_CONVEX_URL`
+- `NEXT_PUBLIC_STACK_PROJECT_ID`
+- `NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY`
+- `NEXT_PUBLIC_WWW_ORIGIN`
+- `NEXT_PUBLIC_GITHUB_APP_SLUG`
+- `NEXT_PUBLIC_CMUX_PROTOCOL`
+
+These jobs use `electron-builder.local.json` and do not require signing keys.
+Artifacts are unsigned; users must allow the app manually on macOS.
+
 ## Universal build (optional)
 
 Universal builds require both Rust targets and Rosetta on Apple Silicon.
@@ -112,7 +134,9 @@ Upstream mac builds run in `.github/workflows/release-updates.yml`:
 - Jobs use Apple signing and notarization secrets (`MAC_CERT_*`, `APPLE_API_*`).
 - They call `scripts/publish-build-mac-arm64.sh` or the universal path and then upload to GitHub Releases.
 
-In `.github/workflows/release-on-tag.yml`, the mac jobs are currently disabled (`if: false`), so tag builds only produce Windows and Linux unless you enable the mac jobs and provide a self-hosted runner + signing secrets.
+In `.github/workflows/release-on-tag.yml`, unsigned mac builds are enabled via
+`macos-arm64-unsigned` and `macos-universal-unsigned`. Signed mac builds still
+require a self-hosted runner plus signing secrets.
 
 ### Apple signing via workflow (fork)
 
