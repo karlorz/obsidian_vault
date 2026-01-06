@@ -25,6 +25,7 @@ NEXT_PUBLIC_STACK_PROJECT_ID=your-stack-project-id
 NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY=your-stack-key
 NEXT_PUBLIC_WWW_ORIGIN=https://your-www-origin.com
 NEXT_PUBLIC_GITHUB_APP_SLUG=your-github-app-slug
+NEXT_PUBLIC_CMUX_PROTOCOL=cmux-next
 EOF
 
 ./scripts/build-electron-local.sh
@@ -35,8 +36,18 @@ Outputs are under `apps/client/dist-electron/`.
 If macOS blocks the app:
 
 ```bash
-xattr -cr apps/client/dist-electron/mac-arm64/cmux.app
-open apps/client/dist-electron/mac-arm64/cmux.app
+xattr -cr apps/client/dist-electron/mac-arm64/cmux-next.app
+open apps/client/dist-electron/mac-arm64/cmux-next.app
+```
+
+## Fork build (cmux-next)
+
+Use the fork config to avoid conflicts with upstream:
+
+```bash
+cd apps/client
+bunx electron-vite build -c electron.vite.config.ts
+bunx electron-builder --config apps/client/electron-builder.fork.json --mac
 ```
 
 ## Signed build (arm64)
@@ -60,6 +71,7 @@ NEXT_PUBLIC_STACK_PROJECT_ID=your-stack-project-id
 NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY=your-stack-key
 NEXT_PUBLIC_WWW_ORIGIN=https://your-www-origin.com
 NEXT_PUBLIC_GITHUB_APP_SLUG=your-github-app-slug
+NEXT_PUBLIC_CMUX_PROTOCOL=cmux-next
 EOF
 
 chmod 600 .env.codesign
@@ -102,9 +114,20 @@ Upstream mac builds run in `.github/workflows/release-updates.yml`:
 
 In `.github/workflows/release-on-tag.yml`, the mac jobs are currently disabled (`if: false`), so tag builds only produce Windows and Linux unless you enable the mac jobs and provide a self-hosted runner + signing secrets.
 
+### Apple signing via workflow (fork)
+
+1. Ensure a macOS runner (self-hosted recommended for signing).
+2. Add secrets in the `electron` environment:
+   - `MAC_CERT_BASE64`, `MAC_CERT_PASSWORD`
+   - `APPLE_API_KEY`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`
+   - `NEXT_PUBLIC_CONVEX_URL`, `NEXT_PUBLIC_STACK_PROJECT_ID`, `NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY`, `NEXT_PUBLIC_WWW_ORIGIN`, `NEXT_PUBLIC_GITHUB_APP_SLUG`, `NEXT_PUBLIC_CMUX_PROTOCOL`
+3. Enable mac jobs in `.github/workflows/release-on-tag.yml` (remove `if: false`).
+4. If you want fork-specific metadata, update the workflow to build with:
+   - `--config apps/client/electron-builder.fork.json`
+
 ## Side-by-side installs on the same Mac
 
-Current app id is `com.cmux.app`. If two builds share the same app id:
+Fork app id is `com.karlorz.cmux`. If two builds share the same app id:
 
 - One app can overwrite the other in `/Applications`.
 - They share the same user data directory.
@@ -113,14 +136,15 @@ Current app id is `com.cmux.app`. If two builds share the same app id:
 To run both safely, change these per build:
 
 - `appId` in `apps/client/electron-builder*.json`.
-- `productName` (app bundle name).
-- URL scheme (if you use `cmux://`).
+- `productName` (app bundle name). For fork: `cmux-next`.
+- URL scheme (fork uses `cmux-next://`).
 - Update channel or GitHub release feed (to avoid cross-updates).
 
 ## Reference files
 
 - `apps/client/electron-builder.json`
 - `apps/client/electron-builder.local.json`
+- `apps/client/electron-builder.fork.json`
 - `apps/client/electron.vite.config.ts`
 - `apps/client/build/entitlements.mac.plist`
 - `scripts/build-electron-local.sh`
