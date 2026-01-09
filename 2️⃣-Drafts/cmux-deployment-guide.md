@@ -1,7 +1,7 @@
 # cmux Deployment Guide
 
 > Complete environment variable reference for all deployment targets.
-> Last updated: 2025-12-31
+> Last updated: 2026-01-09
 
 ## Architecture Overview
 
@@ -144,8 +144,16 @@ CMUX_GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----..."
 GITHUB_APP_WEBHOOK_SECRET=...
 INSTALL_STATE_SECRET=...
 
-# AI
-ANTHROPIC_API_KEY=sk-ant-...
+# AI (at least one required for Crown evaluation)
+# Priority: OpenAI > Anthropic > Gemini
+OPENAI_API_KEY=sk-...        # Optional
+ANTHROPIC_API_KEY=sk-ant-... # Optional
+GEMINI_API_KEY=...           # Optional
+
+# AI Gateway URL Overrides (optional - for custom proxies)
+# AIGATEWAY_OPENAI_BASE_URL=https://your-proxy/openai/v1
+# AIGATEWAY_ANTHROPIC_BASE_URL=https://your-proxy/anthropic
+# AIGATEWAY_GEMINI_BASE_URL=https://your-proxy/gemini/v1
 
 # Sandbox (one of these)
 MORPH_API_KEY=morph_...
@@ -180,8 +188,11 @@ NEXT_PUBLIC_CONVEX_URL=https://your-project.convex.cloud
 CMUX_GITHUB_APP_ID=1234567
 CMUX_GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----..."
 
-# AI (Required)
-ANTHROPIC_API_KEY=sk-ant-...
+# AI (at least one required for Crown evaluation)
+# Priority: OpenAI > Anthropic > Gemini
+OPENAI_API_KEY=sk-...        # Optional
+ANTHROPIC_API_KEY=sk-ant-... # Optional
+GEMINI_API_KEY=...           # Optional
 
 # JWT
 CMUX_TASK_RUN_JWT_SECRET=...
@@ -211,8 +222,12 @@ SANDBOX_PROVIDER=morph   # or pve-lxc
 ### Optional Variables
 
 ```bash
-OPENAI_API_KEY=sk-...           # For PR review features
-GEMINI_API_KEY=...              # For Gemini model support
+# AI Gateway URL Overrides (for custom proxies/gateways)
+AIGATEWAY_OPENAI_BASE_URL=https://your-proxy/openai/v1
+AIGATEWAY_ANTHROPIC_BASE_URL=https://your-proxy/anthropic
+AIGATEWAY_GEMINI_BASE_URL=https://your-proxy/gemini/v1
+
+# Other
 CONVEX_SITE_URL=...             # Self-hosted Convex only
 NEXT_PUBLIC_GITHUB_APP_SLUG=... # OAuth redirect
 GITHUB_TOKEN=...                # Rate-limited GitHub API calls
@@ -585,8 +600,16 @@ CMUX_GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----..."
 GITHUB_APP_WEBHOOK_SECRET=...
 INSTALL_STATE_SECRET=...
 
-# AI
-ANTHROPIC_API_KEY=sk-ant-...
+# AI (at least one required for Crown evaluation)
+# Priority: OpenAI > Anthropic > Gemini
+OPENAI_API_KEY=sk-...        # Optional
+ANTHROPIC_API_KEY=sk-ant-... # Optional
+GEMINI_API_KEY=...           # Optional
+
+# AI Gateway URL Overrides (optional - for custom proxies)
+# AIGATEWAY_OPENAI_BASE_URL=https://your-proxy/openai/v1
+# AIGATEWAY_ANTHROPIC_BASE_URL=https://your-proxy/anthropic
+# AIGATEWAY_GEMINI_BASE_URL=https://your-proxy/gemini/v1
 
 # JWT
 CMUX_TASK_RUN_JWT_SECRET=...

@@ -4,10 +4,10 @@
 
 | Service            | Priority 1 (Primary)                                                                  | Priority 2 (Fallback)                                                                                 | Priority 3 (Fallback)                                                                                | Configuration Context & Failsafe                                                                                        |
 | :----------------- | :------------------------------------------------------------------------------------ | :---------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------- |
-| **Branch Gen**     | **OpenAI** `gpt-5-nano`<br>Key: `OPENAI_API_KEY`<br>Url: `CLOUDFLARE_OPENAI_BASE_URL` | **Google** `gemini-2.5-flash`<br>Key: `GEMINI_API_KEY`<br>Url: Standard                               | **Anthropic** `claude-3-5-haiku`<br>Key: `ANTHROPIC_API_KEY`<br>Url: `CLOUDFLARE_ANTHROPIC_BASE_URL` | **FAILSAFE:** Returns deterministic string (e.g., "feature-update") if NO keys are present. **Safe to run without AI.** |
-| **Commit Msg Gen** | **OpenAI** `gpt-5-nano`<br>Key: `OPENAI_API_KEY`<br>Url: `CLOUDFLARE_OPENAI_BASE_URL` | **Google** `gemini-2.5-flash`<br>Key: `GEMINI_API_KEY`<br>Url: Standard                               | **Anthropic** `claude-3-5-haiku`<br>Key: `ANTHROPIC_API_KEY`<br>Url: Standard                        | **FAILSAFE:** Logs "No API keys available, skipping AI generation" and returns `null`. **Safe to run without AI.**      |
-| **Convex Crown**   | **OpenAI** `gpt-5-mini`<br>Key: `OPENAI_API_KEY`<br>Url: `CLOUDFLARE_OPENAI_BASE_URL` | **Anthropic** `claude-3-5-sonnet`<br>Key: `ANTHROPIC_API_KEY`<br>Url: Standard                        | —                                                                                                    | **CRITICAL:** Throws Error if no keys found. AI required.                                                               |
-| **PR Narratives**  | **OpenAI** `gpt-5-mini`<br>Key: `OPENAI_API_KEY`<br>Url: `CLOUDFLARE_OPENAI_BASE_URL` | **Anthropic** `claude-3-5-sonnet`<br>Key: `ANTHROPIC_API_KEY`<br>Url: Standard                        | —                                                                                                    | **CRITICAL:** Throws Error if no keys found. AI required.                                                               |
+| **Branch Gen**     | **OpenAI** `gpt-5-nano`<br>Key: `OPENAI_API_KEY`<br>Url: `AIGATEWAY_OPENAI_BASE_URL` or `CLOUDFLARE_OPENAI_BASE_URL` | **Google** `gemini-2.5-flash`<br>Key: `GEMINI_API_KEY`<br>Url: Standard                               | **Anthropic** `claude-3-5-haiku`<br>Key: `ANTHROPIC_API_KEY`<br>Url: `CLOUDFLARE_ANTHROPIC_BASE_URL` | **FAILSAFE:** Returns deterministic string (e.g., "feature-update") if NO keys are present. **Safe to run without AI.** |
+| **Commit Msg Gen** | **OpenAI** `gpt-5-nano`<br>Key: `OPENAI_API_KEY`<br>Url: `AIGATEWAY_OPENAI_BASE_URL` or `CLOUDFLARE_OPENAI_BASE_URL` | **Google** `gemini-2.5-flash`<br>Key: `GEMINI_API_KEY`<br>Url: Standard                               | **Anthropic** `claude-3-5-haiku`<br>Key: `ANTHROPIC_API_KEY`<br>Url: Standard                        | **FAILSAFE:** Logs "No API keys available, skipping AI generation" and returns `null`. **Safe to run without AI.**      |
+| **Convex Crown**   | **OpenAI** `gpt-5-mini`<br>Key: `OPENAI_API_KEY`<br>Url: `AIGATEWAY_OPENAI_BASE_URL` or `CLOUDFLARE_OPENAI_BASE_URL` | **Anthropic** `claude-3-5-sonnet`<br>Key: `ANTHROPIC_API_KEY`<br>Url: `AIGATEWAY_ANTHROPIC_BASE_URL` or `CLOUDFLARE_ANTHROPIC_BASE_URL` | **Google** `gemini-3-flash-preview`<br>Key: `GEMINI_API_KEY`<br>Url: `AIGATEWAY_GEMINI_BASE_URL` or Standard | **CRITICAL:** Throws Error if no keys found. AI required.                                                               |
+| **PR Narratives**  | **OpenAI** `gpt-5-mini`<br>Key: `OPENAI_API_KEY`<br>Url: `AIGATEWAY_OPENAI_BASE_URL` or `CLOUDFLARE_OPENAI_BASE_URL` | **Anthropic** `claude-3-5-sonnet`<br>Key: `ANTHROPIC_API_KEY`<br>Url: `AIGATEWAY_ANTHROPIC_BASE_URL` or `CLOUDFLARE_ANTHROPIC_BASE_URL` | **Google** `gemini-3-flash-preview`<br>Key: `GEMINI_API_KEY`<br>Url: `AIGATEWAY_GEMINI_BASE_URL` or Standard | **CRITICAL:** Throws Error if no keys found. AI required.                                                               |
 | **Heatmap Review** | **Anthropic (Bedrock)** `opus-4.5`<br>Key: `AWS_BEARER_TOKEN_BEDROCK`<br>Url: AWS SDK | **OpenAI (Fine-tunes)** `ft:gpt-4.1...`<br>Key: `OPENAI_API_KEY`<br>Url: `CLOUDFLARE_OPENAI_BASE_URL` | **Anthropic (Bedrock)** `opus-4.1`<br>Key: `AWS_BEARER_TOKEN_BEDROCK`<br>Url: AWS SDK                | **CRITICAL:** Throws Error if configured key is missing. AI required.                                                   |
 | **Context7**       | **Context7** (MCP)<br>Key: `CONTEXT7_API_KEY`                                         | —                                                                                                     | —                                                                                                    | **CRITICAL:** AI required for MCP tool execution.                                                                       |
 
@@ -18,17 +18,24 @@
 
 Performs technical evaluation of AI-generated code and summarizes changes.
 
-- **Providers:** OpenAI (Preferred) or Anthropic.
+- **Providers:** OpenAI (Preferred), Anthropic (Fallback), or Gemini (Fallback).
 - **Models:**
-  - OpenAI: `gpt-5-mini`
-  - Anthropic: `claude-3-5-sonnet-20241022`
+  - OpenAI: `gpt-5-mini` (defined as `OPENAI_CROWN_MODEL`)
+  - Anthropic: `claude-3-5-sonnet-20241022` (defined as `ANTHROPIC_CROWN_MODEL`)
+  - Gemini: `gemini-3-flash-preview` (defined as `GEMINI_CROWN_MODEL`)
 - **Functions:**
   - `performCrownEvaluation`: Selects the best code candidate based on quality, completeness, and best practices.
   - `performCrownSummarization`: Generates PR summaries (What Changed, Review Focus, Test Plan) from git diffs.
 - **Configuration Details:**
-  - **OpenAI:** Uses **`CLOUDFLARE_OPENAI_BASE_URL`**. Requires `OPENAI_API_KEY`.
-  - **Anthropic:** Standard endpoint. Requires `ANTHROPIC_API_KEY`.
-- **Failsafe Status:** **None.** Throws `ConvexError("Crown evaluation is not configured...")` if keys are missing.
+  - **OpenAI:** Uses `AIGATEWAY_OPENAI_BASE_URL` (if set) or `CLOUDFLARE_OPENAI_BASE_URL`. Requires `OPENAI_API_KEY`.
+  - **Anthropic:** Uses `AIGATEWAY_ANTHROPIC_BASE_URL` (if set) or `CLOUDFLARE_ANTHROPIC_BASE_URL`. Requires `ANTHROPIC_API_KEY`.
+  - **Gemini:** Uses `AIGATEWAY_GEMINI_BASE_URL` (if set) or `CLOUDFLARE_GEMINI_BASE_URL` (standard Google endpoint). Requires `GEMINI_API_KEY`.
+- **Environment Variables:** Accessed via `process.env` directly (not `createEnv` schema) to allow proper deletion via `npx convex env remove`.
+- **Temperature Settings:**
+  - OpenAI: No temperature (GPT-5 models don't support temperature parameter)
+  - Anthropic: `temperature: 0`
+  - Gemini: `temperature: 0`
+- **Failsafe Status:** **None.** Throws `ConvexError("Crown evaluation is not configured...")` if ALL keys are missing.
 
 ## 2) PR Narratives (Screenshot Stories)
 **Location:** `packages/convex/convex/github_pr_comments.ts`
@@ -100,10 +107,23 @@ CLI Agents running in the terminal environment.
 | **OpenCode** | OpenAI Compatible | `gpt-5`, `grok-4-1-fast`, `qwen3-coder` |
 
 ## 7) Shared Configuration Constants
-**Location:** `packages/shared/src/utils/openai.ts`, `packages/shared/src/utils/anthropic.ts`
+**Location:** `packages/shared/src/utils/openai.ts`, `packages/shared/src/utils/anthropic.ts`, `packages/shared/src/utils/gemini.ts`
 
 Reference of constants imported across the codebase:
 
-- **`CLOUDFLARE_OPENAI_BASE_URL`**: The primary gateway for all OpenAI-compatible requests (Crown, Heatmap FT, Branch Gen).
-- **`CLOUDFLARE_ANTHROPIC_BASE_URL`**: Specific gateway used for Anthropic in Branch Generation.
+- **`CLOUDFLARE_OPENAI_BASE_URL`**: Default gateway for OpenAI-compatible requests (Crown, Heatmap FT, Branch Gen).
+- **`CLOUDFLARE_ANTHROPIC_BASE_URL`**: Default gateway for Anthropic requests (Crown, Branch Gen).
+- **`CLOUDFLARE_GEMINI_BASE_URL`**: Default endpoint for Gemini requests (`https://generativelanguage.googleapis.com/v1beta`).
 - **`ANTHROPIC_BASE_URL`**: Used in `host-screenshot-collector` (`https://www.cmux.dev/api/anthropic`).
+
+### AI Gateway URL Override Environment Variables
+
+These optional environment variables allow custom proxy/gateway URLs:
+
+| Variable | Description | Default Fallback |
+|----------|-------------|------------------|
+| `AIGATEWAY_OPENAI_BASE_URL` | Custom OpenAI gateway URL | `CLOUDFLARE_OPENAI_BASE_URL` |
+| `AIGATEWAY_ANTHROPIC_BASE_URL` | Custom Anthropic gateway URL | `CLOUDFLARE_ANTHROPIC_BASE_URL` |
+| `AIGATEWAY_GEMINI_BASE_URL` | Custom Gemini gateway URL | `CLOUDFLARE_GEMINI_BASE_URL` |
+
+**Note:** These are accessed via `process.env` directly in Convex to avoid schema validation issues when deleting environment variables.
