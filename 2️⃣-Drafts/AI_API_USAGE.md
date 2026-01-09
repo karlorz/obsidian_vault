@@ -62,7 +62,16 @@ The following models are available within the cmux terminal environment via thei
 | **Qwen** | `qwen3-coder:free` (OpenRouter), `qwen3-coder-plus` (ModelStudio) |
 | **Amp** | `amp` (default), `amp/gpt-5` |
 
-## 6) Latest provider notes (Vercel AI SDK v6)
+## 6) Configuration Constants & Base URLs
+**Location:** `packages/shared/src/utils/openai.ts`, `packages/shared/src/utils/anthropic.ts`
+
+Shared constants used to route model requests through specific gateways/proxies:
+
+- **`CLOUDFLARE_OPENAI_BASE_URL`**: Used for almost all OpenAI-based services (Crown, PR Narratives, Branch Generation, Heatmap/Simple Review). Ensures requests are routed through the configured Cloudflare gateway.
+- **`CLOUDFLARE_ANTHROPIC_BASE_URL`**: Used in Branch Generation. Note that some Anthropic services (like Heatmap) use Bedrock directly via AWS SDK instead of this base URL.
+- **`ANTHROPIC_BASE_URL`**: Hardcoded in some environment setups (e.g., `packages/host-screenshot-collector`) to point to `https://www.cmux.dev/api/anthropic`.
+
+## 7) Latest provider notes (Vercel AI SDK v6)
 
 - Use dedicated providers: `@ai-sdk/openai`, `@ai-sdk/anthropic`, `@ai-sdk/google`; or `createOpenAICompatible` for OpenAI-style APIs.
 - Model selection examples: `openai("gpt-4-turbo")`, `anthropic("claude-3-5-sonnet-20241022")`, `google("gemini-2.5-flash")`.
