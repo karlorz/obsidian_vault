@@ -21,7 +21,7 @@ Performs technical evaluation of AI-generated code and summarizes changes.
 - **Providers:** OpenAI (Preferred), Anthropic (Fallback), or Gemini (Fallback).
 - **Models:**
   - OpenAI: `gpt-5-mini` (defined as `OPENAI_CROWN_MODEL`)
-  - Anthropic: `claude-3-5-sonnet-20241022` (defined as `ANTHROPIC_CROWN_MODEL`)
+  - Anthropic: `claude-sonnet-4-5-20250929` (defined as `ANTHROPIC_CROWN_MODEL`)
   - Gemini: `gemini-3-flash-preview` (defined as `GEMINI_CROWN_MODEL`)
 - **Functions:**
   - `performCrownEvaluation`: Selects the best code candidate based on quality, completeness, and best practices.
