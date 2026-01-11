@@ -97,18 +97,6 @@ if [[ "$phase" == "post-start" ]]; then
     # Force DNS to PVE Host
     lxc-attach -n $vmid -- bash -c "echo 'nameserver $PVE_HOST_IP' > /etc/resolv.conf"
     
-    # Configure proxy environment (for apps that respect it)
-    lxc-attach -n $vmid -- bash -c "cat >> /etc/environment << 'ENVEOF'
-ALL_PROXY=socks5://$PVE_HOST_IP:1055
-HTTP_PROXY=http://$PVE_HOST_IP:1055
-HTTPS_PROXY=http://$PVE_HOST_IP:1055
-http_proxy=http://$PVE_HOST_IP:1055
-https_proxy=http://$PVE_HOST_IP:1055
-ENVEOF"
-    
-    # Configure curl default proxy
-    lxc-attach -n $vmid -- bash -c "echo 'proxy = socks5://$PVE_HOST_IP:1055' > /root/.curlrc"
-    
     # Install redsocks for transparent TCP proxying (if not present)
     if ! lxc-attach -n $vmid -- which redsocks > /dev/null 2>&1; then
         echo "[$vmid] Installing redsocks..."
@@ -268,7 +256,7 @@ run_verification() {
 
     NEXT_VMID=$(pvesh get /cluster/nextid)
     log "Cloning VMID $TEMPLATE_VMID to new VMID $NEXT_VMID..."
-    pct clone $TEMPLATE_VMID $NEXT_VMID --hostname "tailscale-test-$NEXT_VMID" --full 1
+    pct clone $TEMPLATE_VMID $NEXT_VMID --hostname "tailscale-test-$NEXT_VMID" --full 0
     
     log "Setting hookscript..."
     pct set $NEXT_VMID -hookscript "local:snippets/$HOOK_SCRIPT_NAME"
