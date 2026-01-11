@@ -183,3 +183,79 @@ Inside an LXC (without Tailscale installed):
     # Should work
     curl -v target-domain.com
     ```
+
+---
+
+## Part 6: SOCKS5 Proxy Solution (Recommended)
+
+> [!IMPORTANT]
+> **Key Finding**: The DNS hijacking approach (Parts 3-5) does NOT work for App Connectors. Tailscale App Connectors use **route-based mode**, NOT DNS hijacking. They advertise IP routes, but forwarded traffic from LXCs does not enter the Tailscale tunnel correctly.
+
+### The Working Solution: SOCKS5 Proxy
+
+Configure Tailscale on the PVE host to run a SOCKS5 proxy, then route LXC traffic through it.
+
+```mermaid
+flowchart LR
+    LXC["LXC Container"] -->|"curl --proxy"| Proxy["SOCKS5 Proxy\n10.10.0.9:1055"]
+    Proxy --> TS["Tailscale\n(PVE Host)"]
+    TS --> AC["App Connector\n(karlcloudjp)"]
+    AC --> Internet["Internet\n(Exit IP)"]
+```
+
+### 1. Configure Tailscale Daemon with SOCKS5 Proxy
+
+Create a systemd override:
+```bash
+mkdir -p /etc/systemd/system/tailscaled.service.d
+cat > /etc/systemd/system/tailscaled.service.d/socks5.conf << 'EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/sbin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock --port=41641 --socks5-server=10.10.0.9:1055 --outbound-http-proxy-listen=10.10.0.9:1055
+EOF
+systemctl daemon-reload
+systemctl restart tailscaled
+```
+
+### 2. Enable Accept-Routes
+
+**CRITICAL**: App Connector routes must be accepted:
+```bash
+tailscale set --accept-routes=true
+```
+
+> [!WARNING]
+> Do NOT enable `--accept-routes` if another node (e.g., `tailscale02`) is advertising your LAN subnet (e.g., `10.10.0.0/16`). This causes routing loops. Disable conflicting subnet advertisements first.
+
+### 3. Usage in LXCs
+
+**For curl** (explicit proxy required):
+```bash
+curl --proxy socks5://10.10.0.9:1055 https://api.ipify.org
+# Returns: App Connector exit IP (e.g., 138.3.208.36)
+```
+
+**For applications respecting env vars** (apt, wget, pip, npm):
+```bash
+export ALL_PROXY=socks5://10.10.0.9:1055
+export HTTP_PROXY=http://10.10.0.9:1055
+export HTTPS_PROXY=http://10.10.0.9:1055
+```
+
+### 4. Automated Hook Script
+
+The hook script at `/var/lib/vz/snippets/tailscale-hook.sh` can inject these environment variables automatically. See [`setup_tailscale_lxc.sh`](./setup_tailscale_lxc.sh) for the complete automated setup.
+
+---
+
+## Key Findings & Limitations
+
+| Approach | Works? | Notes |
+|----------|--------|-------|
+| DNS Hijacking via dnsmasq | ❌ | App Connectors don't return MagicDNS IPs |
+| Route-based (accept-routes) | ❌ | Forwarded traffic doesn't enter Tailscale tunnel |
+| Advertise LXC subnet | ❌ | Causes routing loop if PVE is inside subnet |
+| **SOCKS5 Proxy** | ✅ | Traffic originates from tailscaled, properly routed |
+
+### Root Cause
+Tailscale's policy routing (fwmark `0x80000`) only applies to **locally-originated** traffic. Forwarded packets from LXCs bypass this, going straight to the default route.

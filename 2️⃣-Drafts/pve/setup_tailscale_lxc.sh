@@ -38,14 +38,12 @@ fi
 if ! tailscale status &> /dev/null; then
     log "Tailscale is not logged in."
     log "Running 'tailscale up'... properly authenticate via the link below:"
-    # CRIMINALLY IMPORTANT: Do NOT enable --accept-routes=true if your PVE host is inside
-    # a subnet advertised by another node. It kills LAN connectivity.
-    tailscale up --accept-dns=true --accept-routes=false
+    tailscale up --accept-dns=true --accept-routes=true
 else
     log "Tailscale is up and running."
-    # Ensure routes are disabled to prevent network suicide
-    tailscale set --accept-routes=false
-    log "Enforced --accept-routes=false for safety."
+    # Enable accept-routes for App Connector support
+    tailscale set --accept-routes=true
+    log "Enabled --accept-routes for App Connectors."
 fi
 
 # Install dnsmasq if missing
@@ -92,6 +90,23 @@ else
     log "MASQUERADE rule already exists."
 fi
 
+# 2. Configure Tailscale SOCKS5 Proxy
+log "Configuring Tailscale SOCKS5 proxy..."
+mkdir -p /etc/systemd/system/tailscaled.service.d
+cat > /etc/systemd/system/tailscaled.service.d/socks5.conf << 'EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/sbin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock --port=41641 --socks5-server=10.10.0.9:1055 --outbound-http-proxy-listen=10.10.0.9:1055
+EOF
+systemctl daemon-reload
+systemctl restart tailscaled
+sleep 3
+if ss -tlnp | grep -q ':1055'; then
+    log "SOCKS5 proxy listening on 10.10.0.9:1055"
+else
+    log "WARNING: SOCKS5 proxy may not be running"
+fi
+
 # 2. Create Hook Script
 log "Creating LXC Hook Script..."
 mkdir -p "$SNIPPET_DIR"
@@ -135,6 +150,12 @@ export HTTPS_PROXY=http://$PVE_HOST_IP:1055
 export http_proxy=http://$PVE_HOST_IP:1055
 export https_proxy=http://$PVE_HOST_IP:1055
 PROFEOF"
+    
+    # 4. Configure curl to use proxy by default (system-wide .curlrc)
+    lxc-attach -n \$vmid -- bash -c "echo 'proxy = socks5://10.10.0.9:1055' > /etc/curlrc"
+    
+    # 5. Also set for root user's curlrc
+    lxc-attach -n \$vmid -- bash -c "echo 'proxy = socks5://10.10.0.9:1055' > /root/.curlrc"
     
     echo "[\$vmid] Tailscale Hook: Done."
 fi
