@@ -388,6 +388,8 @@ if [[ "\$phase" == "post-start" ]]; then
 
     # Force DNS to PVE Host
     lxc-attach -n \$vmid -- bash -c "echo 'nameserver \$PVE_HOST_IP' > /etc/resolv.conf"
+    # Prefer IPv4 (redsocks is IPv4-only); make idempotent
+    lxc-attach -n \$vmid -- bash -c "grep -q '^precedence ::ffff:0:0/96 100' /etc/gai.conf || echo 'precedence ::ffff:0:0/96 100' >> /etc/gai.conf"
 
     # Install redsocks for transparent TCP proxying (if not present)
     if ! lxc-attach -n \$vmid -- which redsocks > /dev/null 2>&1; then
