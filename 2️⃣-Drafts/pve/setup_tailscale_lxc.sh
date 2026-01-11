@@ -193,13 +193,12 @@ configure_host() {
     # Configure Tailscale
     if ! tailscale status &> /dev/null; then
         log "Running 'tailscale up'... authenticate via the link below:"
-        # --accept-dns=false: Don't overwrite PVE host /etc/resolv.conf
-        # --accept-routes=true: REQUIRED for App Connectors
-        tailscale up --accept-dns=false --accept-routes=true
+        # Reverting to --accept-dns=true as it is known working
+        tailscale up --accept-dns=true --accept-routes=true
     else
         log "Tailscale is up."
-        tailscale set --accept-dns=false --accept-routes=true
-        log "Configured: --accept-dns=false --accept-routes=true"
+        tailscale set --accept-dns=true --accept-routes=true
+        log "Configured: --accept-dns=true --accept-routes=true"
     fi
 
     # Install dnsmasq if needed
@@ -210,8 +209,12 @@ configure_host() {
 
     # Configure dnsmasq for MagicDNS forwarding
     log "Configuring dnsmasq..."
+    # listen-address=$PVE_HOST_IP ensures it listens on the IP LXCs use
+    # bind-dynamic allows binding to interface even if IP changes slightly or on restart
     cat > /etc/dnsmasq.d/01-tailscale.conf << 'DNSEOF'
 interface=vmbr0
+listen-address=10.10.0.9
+bind-dynamic
 server=100.100.100.100
 domain-needed
 bogus-priv
@@ -313,10 +316,6 @@ case "${1:-}" in
     *)
         configure_host
         create_hook_script
-        # Automatically configure the template if it exists
-        if pct config $TEMPLATE_VMID &>/dev/null; then
-            attach_hook $TEMPLATE_VMID
-        fi
         run_verification
         ;;
 esac
