@@ -193,11 +193,13 @@ configure_host() {
     # Configure Tailscale
     if ! tailscale status &> /dev/null; then
         log "Running 'tailscale up'... authenticate via the link below:"
-        tailscale up --accept-dns=true --accept-routes=true
+        # --accept-dns=false: Don't overwrite PVE host /etc/resolv.conf
+        # --accept-routes=true: REQUIRED for App Connectors
+        tailscale up --accept-dns=false --accept-routes=true
     else
         log "Tailscale is up."
-        tailscale set --accept-routes=true
-        log "Enabled --accept-routes for App Connectors."
+        tailscale set --accept-dns=false --accept-routes=true
+        log "Configured: --accept-dns=false --accept-routes=true"
     fi
 
     # Install dnsmasq if needed
