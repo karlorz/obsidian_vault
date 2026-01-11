@@ -36,15 +36,29 @@ Your default LXCs live on `vmbr0` (the 10.10.0.0/16 network). They are "next to"
     sysctl -p /etc/sysctl.d/99-tailscale.conf
     ```
 
-2.  **Advertise Routes**:
-    Replace `10.10.0.0/16` with your actual subnet.
-    ```bash
-    tailscale up --advertise-routes=10.10.0.0/16 --accept-dns=true
-    ```
-    *`--accept-dns=true` ensures the Host itself uses MagicDNS.*
+2.  **Configure Routing & Masquerading**:
+    Since you already have `tailscale02` advertising the subnet, we **should not** advertise it again on this host to avoid conflict/asymmetry. Instead, we will **Masquerade (NAT)** traffic leaving the PVE host into Tailscale.
+    This ensures traffic from LXCs looks like it comes from the PVE Host itself, so responses come back here correctly.
 
-3.  **Approve Route** in Tailscale Admin Console:
-    -   Machines -> Your PVE Host -> Edit Route Settings -> Enable the subnet (`10.10.0.0/16`).
+    *Run this to add the NAT rule (and persist it)*:
+    ```bash
+    # 1. Enable IP Forwarding (if not already done)
+    echo 'net.ipv4.ip_forward = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
+    sysctl -p /etc/sysctl.d/99-tailscale.conf
+
+    # 2. Add IPTables Rule for Masquerading
+    iptables -t nat -A POSTROUTING -o tailscale0 -j MASQUERADE
+    
+    # 3. Install iptables-persistent to save it
+    apt update && apt install iptables-persistent -y
+    netfilter-persistent save
+    ```
+
+3.  **Start Tailscale (Client Mode)**:
+    ```bash
+    tailscale up --accept-dns=true
+    ```
+    *Note: We do NOT need `--advertise-routes` here because we are using NAT.*
 
 ---
 
