@@ -82,26 +82,26 @@ All LXCs need to use Tailscale's DNS (100.100.100.100) to "see" the App Connecto
 ---
 
 ## Part 4: Configure LXC Containers (vmbr0)
-You must change the network settings for **each** LXC you want to use App Connectors.
+**Crucial Note on DHCP**: Since your home router (`10.10.0.1`) manages DHCP, **you cannot simply select "DHCP"** in the LXC settings.
+*   *Why?* DHCP will assign the Router (`10.10.0.1`) as the Gateway and DNS. This breaks App Connectors because the Router doesn't know how to resolve/route Tailscale traffic.
+*   **Solution**: You must use **Static IPv4** settings for these LXCs.
 
 ### The "Golden" Configuration (Recommended)
-This guarantees traffic works without modifying your main router.
-
 1.  **Shutdown** the LXC.
 2.  Go to **Resources -> Network**.
-    -   **Bridge**: `vmbr0` (Default)
-    -   **IPv4/CIDR**: `10.10.0.x/16` (Your static IP) or DHCP
-    -   **Gateway (IPv4)**: `10.10.0.9` (Set to PVE Host IP!)
-        *   *Why?* This forces traffic meant for Tailscale IPs to go directly to the PVE Host, which knows how to route them.
-    -   **DNS Server**: `10.10.0.9` (Set to PVE Host IP!)
-        *   *Why?* This ensures the LXC can resolve names like `code.corp` or `github.com` to Tailscale IPs.
+    -   **Bridge**: `vmbr0`
+    -   **IPv4**: Select **Static** (Do NOT use DHCP).
+    -   **IPv4/CIDR**: Pick an IP *outside* your Router's DHCP pool (e.g., `10.10.0.200/16`).
+    -   **Gateway (IPv4)**: `10.10.0.9` (**PVE Host IP** - Required).
+    -   **DNS Server**: `10.10.0.9` (**PVE Host IP** - Required).
 3.  **Start** the LXC.
 
-### Alternative (If you keep Router Gateway)
-If you keep Gateway as `10.10.0.1` (Router), you **MUST** log into your Router (UniFi/Omada/etc) and add a Static Route:
-*   Destination: `100.64.0.0/10`
-*   Next Hop: `10.10.0.9` (PVE Host)
-*Without this, LXC sends traffic to Router, and Router drops it because it doesn't know where `100.x.x.x` is.*
+### "I really want to use DHCP" Method
+If you absolutely must use DHCP (e.g., via Router reservation), it is much harder:
+1.  **Router Config**: You must add a **Static Route** on your UniFi/Omada router: `100.64.0.0/10` -> `10.10.0.9`.
+    *   *This fixes connectivity, but NOT DNS.*
+2.  **LXC DNS**: Since the Router gives its own IP for DNS, you must manually edit `/etc/resolv.conf` inside *every* LXC to point to `10.10.0.9` to resolve App Connector domains.
+    *   *Verdict*: Not recommended. Use Static IPv4 in Proxmox instead.
 
 ---
 
