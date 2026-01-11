@@ -102,7 +102,7 @@ vmid="\$1"
 phase="\$2"
 
 if [[ "\$phase" == "post-start" ]]; then
-    echo "[\$vmid] Tailscale Hook: Configuring routes and DNS..."
+    echo "[\$vmid] Tailscale Hook: Configuring routes, DNS, and proxy..."
     
     # Wait for network to be ready inside LXC (Retry loop)
     echo "[\$vmid] Waiting for network..."
@@ -116,6 +116,25 @@ if [[ "\$phase" == "post-start" ]]; then
     
     # 2. Force DNS to PVE Host ($PVE_HOST_IP)
     lxc-attach -n \$vmid -- bash -c "echo 'nameserver $PVE_HOST_IP' > /etc/resolv.conf"
+    
+    # 3. Configure Proxy environment for App Connectors
+    # This routes HTTP/HTTPS traffic through Tailscale's SOCKS5 proxy
+    lxc-attach -n \$vmid -- bash -c "cat >> /etc/environment << 'ENVEOF'
+ALL_PROXY=socks5://$PVE_HOST_IP:1055
+HTTP_PROXY=http://$PVE_HOST_IP:1055
+HTTPS_PROXY=http://$PVE_HOST_IP:1055
+http_proxy=http://$PVE_HOST_IP:1055
+https_proxy=http://$PVE_HOST_IP:1055
+ENVEOF"
+    
+    # Also set for current session in common profile (for interactive shells)
+    lxc-attach -n \$vmid -- bash -c "cat >> /etc/profile.d/tailscale-proxy.sh << 'PROFEOF'
+export ALL_PROXY=socks5://$PVE_HOST_IP:1055
+export HTTP_PROXY=http://$PVE_HOST_IP:1055
+export HTTPS_PROXY=http://$PVE_HOST_IP:1055
+export http_proxy=http://$PVE_HOST_IP:1055
+export https_proxy=http://$PVE_HOST_IP:1055
+PROFEOF"
     
     echo "[\$vmid] Tailscale Hook: Done."
 fi
