@@ -38,9 +38,14 @@ fi
 if ! tailscale status &> /dev/null; then
     log "Tailscale is not logged in."
     log "Running 'tailscale up'... properly authenticate via the link below:"
-    tailscale up --accept-dns=true
+    # CRIMINALLY IMPORTANT: Do NOT enable --accept-routes=true if your PVE host is inside
+    # a subnet advertised by another node. It kills LAN connectivity.
+    tailscale up --accept-dns=true --accept-routes=false
 else
     log "Tailscale is up and running."
+    # Ensure routes are disabled to prevent network suicide
+    tailscale set --accept-routes=false
+    log "Enforced --accept-routes=false for safety."
 fi
 
 # Install dnsmasq if missing
