@@ -390,6 +390,10 @@ if [[ "\$phase" == "post-start" ]]; then
     lxc-attach -n \$vmid -- bash -c "echo 'nameserver \$PVE_HOST_IP' > /etc/resolv.conf"
     # Prefer IPv4 (redsocks is IPv4-only); make idempotent
     lxc-attach -n \$vmid -- bash -c "grep -q '^precedence ::ffff:0:0/96 100' /etc/gai.conf || echo 'precedence ::ffff:0:0/96 100' >> /etc/gai.conf"
+    # Disable IPv6 to avoid bypass paths
+    lxc-attach -n \$vmid -- sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null 2>&1 || true
+    lxc-attach -n \$vmid -- sysctl -w net.ipv6.conf.default.disable_ipv6=1 >/dev/null 2>&1 || true
+    lxc-attach -n \$vmid -- sysctl -w net.ipv6.conf.lo.disable_ipv6=1 >/dev/null 2>&1 || true
 
     # Install redsocks for transparent TCP proxying (if not present)
     if ! lxc-attach -n \$vmid -- which redsocks > /dev/null 2>&1; then
@@ -435,6 +439,12 @@ iptables -t nat -A REDSOCKS -d 224.0.0.0/4 -j RETURN
 iptables -t nat -A REDSOCKS -d 240.0.0.0/4 -j RETURN
 iptables -t nat -A REDSOCKS -p tcp -j REDIRECT --to-ports 12345
 iptables -t nat -A OUTPUT -p tcp -j REDSOCKS
+# Block QUIC/UDP 443 to avoid bypassing the TCP proxy
+iptables -C OUTPUT -p udp --dport 443 -j REJECT 2>/dev/null || iptables -A OUTPUT -p udp --dport 443 -j REJECT
+# Allow DNS to host, block other UDP to stop leaks
+iptables -C OUTPUT -p udp -d $PVE_HOST_IP --dport 53 -j ACCEPT 2>/dev/null || iptables -A OUTPUT -p udp -d $PVE_HOST_IP --dport 53 -j ACCEPT
+iptables -C OUTPUT -p udp --dport 53 -j REJECT 2>/dev/null || iptables -A OUTPUT -p udp --dport 53 -j REJECT
+iptables -C OUTPUT -p udp -j REJECT 2>/dev/null || iptables -A OUTPUT -p udp -j REJECT
 FWEOF
 chmod +x /usr/local/bin/redsocks-fw.sh'
 
