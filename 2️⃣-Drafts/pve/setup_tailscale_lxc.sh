@@ -102,6 +102,9 @@ if [[ "$phase" == "post-start" ]]; then
         echo "[$vmid] Installing redsocks..."
         lxc-attach -n $vmid -- apt-get update -qq
         lxc-attach -n $vmid -- apt-get install -y -qq redsocks iptables
+        # Stop default service immediately to prevent conflict
+        lxc-attach -n $vmid -- systemctl stop redsocks
+        lxc-attach -n $vmid -- systemctl disable redsocks
     fi
     
     # Create redsocks config
@@ -308,6 +311,10 @@ case "${1:-}" in
     *)
         configure_host
         create_hook_script
+        # Automatically configure the template if it exists
+        if pct config $TEMPLATE_VMID &>/dev/null; then
+            attach_hook $TEMPLATE_VMID
+        fi
         run_verification
         ;;
 esac
