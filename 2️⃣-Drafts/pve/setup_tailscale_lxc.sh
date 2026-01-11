@@ -157,7 +157,87 @@ PROFEOF"
     # 5. Also set for root user's curlrc
     lxc-attach -n \$vmid -- bash -c "echo 'proxy = socks5://10.10.0.9:1055' > /root/.curlrc"
     
-    echo "[\$vmid] Tailscale Hook: Done."
+    # 6. Configure apt to use proxy
+    lxc-attach -n \$vmid -- bash -c "cat > /etc/apt/apt.conf.d/99proxy << 'APTEOF'
+Acquire::http::proxy \"socks5h://10.10.0.9:1055\";
+Acquire::https::proxy \"socks5h://10.10.0.9:1055\";
+APTEOF"
+    
+    # 7. Install and configure redsocks for transparent proxy (ALL TCP traffic)
+    # Check if redsocks is available, install if not
+    if lxc-attach -n \$vmid -- which redsocks > /dev/null 2>&1; then
+        echo "[\$vmid] redsocks already installed"
+    else
+        echo "[\$vmid] Installing redsocks for transparent proxy..."
+        lxc-attach -n \$vmid -- apt-get update -qq
+        lxc-attach -n \$vmid -- apt-get install -y -qq redsocks iptables
+    fi
+    
+    # Create redsocks config
+    lxc-attach -n \$vmid -- bash -c "cat > /etc/redsocks.conf << 'RSCONF'
+base {
+    log_debug = off;
+    log_info = off;
+    daemon = on;
+    redirector = iptables;
+}
+redsocks {
+    local_ip = 127.0.0.1;
+    local_port = 12345;
+    ip = 10.10.0.9;
+    port = 1055;
+    type = socks5;
+}
+RSCONF"
+    
+    # Create iptables rules script
+    lxc-attach -n \$vmid -- bash -c "cat > /usr/local/bin/redsocks-fw.sh << 'FWEOF'
+#!/bin/bash
+# Create REDSOCKS chain
+iptables -t nat -N REDSOCKS 2>/dev/null || iptables -t nat -F REDSOCKS
+
+# Exclude local/private networks
+iptables -t nat -A REDSOCKS -d 0.0.0.0/8 -j RETURN
+iptables -t nat -A REDSOCKS -d 10.0.0.0/8 -j RETURN
+iptables -t nat -A REDSOCKS -d 100.64.0.0/10 -j RETURN
+iptables -t nat -A REDSOCKS -d 127.0.0.0/8 -j RETURN
+iptables -t nat -A REDSOCKS -d 169.254.0.0/16 -j RETURN
+iptables -t nat -A REDSOCKS -d 172.16.0.0/12 -j RETURN
+iptables -t nat -A REDSOCKS -d 192.168.0.0/16 -j RETURN
+iptables -t nat -A REDSOCKS -d 224.0.0.0/4 -j RETURN
+iptables -t nat -A REDSOCKS -d 240.0.0.0/4 -j RETURN
+
+# Redirect all other TCP to redsocks
+iptables -t nat -A REDSOCKS -p tcp -j REDIRECT --to-ports 12345
+
+# Apply to all outbound TCP
+iptables -t nat -A OUTPUT -p tcp -j REDSOCKS
+FWEOF
+chmod +x /usr/local/bin/redsocks-fw.sh"
+    
+    # Create systemd service for redsocks
+    lxc-attach -n \$vmid -- bash -c "cat > /etc/systemd/system/redsocks.service << 'SVCEOF'
+[Unit]
+Description=Redsocks Transparent Proxy
+After=network.target
+
+[Service]
+Type=forking
+ExecStartPre=/usr/local/bin/redsocks-fw.sh
+ExecStart=/usr/sbin/redsocks -c /etc/redsocks.conf
+ExecStopPost=/sbin/iptables -t nat -F REDSOCKS
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF"
+    
+    # Enable and start redsocks
+    lxc-attach -n \$vmid -- systemctl daemon-reload
+    lxc-attach -n \$vmid -- systemctl enable redsocks
+    lxc-attach -n \$vmid -- systemctl start redsocks
+    
+    echo "[\$vmid] Tailscale Hook: Done. All TCP traffic now routes through proxy."
 fi
 EOF
 
