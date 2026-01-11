@@ -408,6 +408,8 @@ base {
     log_info = off;
     daemon = on;
     redirector = iptables;
+    redsocks_conn_max = 1024;           # avoid hitting default 128 limit
+    connpres_idle_timeout = 300;        # drop idle conns when limit hit
 }
 redsocks {
     local_ip = 127.0.0.1;
@@ -452,6 +454,7 @@ ExecStopPost=/sbin/iptables -t nat -F REDSOCKS
 ExecStopPost=/sbin/iptables -t nat -D OUTPUT -p tcp -j REDSOCKS 2>/dev/null || true
 Restart=on-failure
 RestartSec=5
+LimitNOFILE=4096
 
 [Install]
 WantedBy=multi-user.target
