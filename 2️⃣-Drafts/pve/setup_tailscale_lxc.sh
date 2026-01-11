@@ -20,6 +20,8 @@ SNIPPET_DIR="/var/lib/vz/snippets"
 HOOK_SCRIPT_NAME="tailscale-hook.sh"
 TEMPLATE_VMID=9000                    # Default template for verification
 SOCKS5_PORT=1055                      # SOCKS5 proxy port
+ROUTE_OVERRIDE_SUBNET="${ROUTE_OVERRIDE_SUBNET:-10.10.0.0/23}" # Subnet to keep on local bridge (set empty to skip)
+ROUTE_OVERRIDE_METRIC="${ROUTE_OVERRIDE_METRIC:-5}"            # Metric for the local override
 
 # Colors
 GREEN='\033[0;32m'
@@ -227,6 +229,20 @@ DNSEOF
         issues_found=$((issues_found + 1))
     fi
 
+    # Check 9: Local route override to keep LAN on bridge instead of tailscale0
+    if [ -n "$ROUTE_OVERRIDE_SUBNET" ]; then
+        log "Checking local route override for $ROUTE_OVERRIDE_SUBNET..."
+        if ip route show "$ROUTE_OVERRIDE_SUBNET" | grep -q "dev $PVE_BRIDGE"; then
+            log "  Local route present via $PVE_BRIDGE"
+        else
+            warn "  Local route missing; enforcing override..."
+            ensure_local_route_override
+            fixes_applied=$((fixes_applied + 1))
+        fi
+    else
+        log "Route override skipped (ROUTE_OVERRIDE_SUBNET empty)"
+    fi
+
     echo ""
     log "============================================"
     if [ $issues_found -eq 0 ]; then
@@ -241,6 +257,54 @@ DNSEOF
     log "============================================"
 
     return $issues_found
+}
+
+# ============================================================================
+# Ensure local route override for overlapping LANs (prevents Tailscale route capture)
+# ============================================================================
+ensure_local_route_override() {
+    if [ -z "$ROUTE_OVERRIDE_SUBNET" ]; then
+        log "Route override skipped (ROUTE_OVERRIDE_SUBNET empty)"
+        return
+    fi
+
+    # Install an explicit local route so vmbr0 wins over tailscale0 for the subnet
+    if ip route replace "$ROUTE_OVERRIDE_SUBNET" dev "$PVE_BRIDGE" metric "$ROUTE_OVERRIDE_METRIC" src "$PVE_HOST_IP"; then
+        log "Ensured local route for $ROUTE_OVERRIDE_SUBNET via $PVE_BRIDGE (metric=$ROUTE_OVERRIDE_METRIC src=$PVE_HOST_IP)"
+    else
+        warn "Failed to set local route for $ROUTE_OVERRIDE_SUBNET"
+    fi
+
+    # Add a rule so traffic to the subnet prefers table main over Tailscale table 52
+    if ip rule delete pref 5260 to "$ROUTE_OVERRIDE_SUBNET" lookup main 2>/dev/null; then
+        :
+    fi
+    if ip rule add pref 5260 to "$ROUTE_OVERRIDE_SUBNET" lookup main; then
+        log "Ensured policy rule pref 5260 uses main for $ROUTE_OVERRIDE_SUBNET"
+    else
+        warn "Failed to set policy rule for $ROUTE_OVERRIDE_SUBNET"
+    fi
+
+    # Persist via oneshot systemd service (avoids editing /etc/network/interfaces directly)
+    local service_path="/etc/systemd/system/tailscale-local-route.service"
+    cat > "$service_path" << EOF
+[Unit]
+Description=Ensure local LAN route wins over Tailscale
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/ip route replace $ROUTE_OVERRIDE_SUBNET dev $PVE_BRIDGE metric $ROUTE_OVERRIDE_METRIC src $PVE_HOST_IP
+ExecStart=/bin/sh -c '/sbin/ip rule delete pref 5260 to $ROUTE_OVERRIDE_SUBNET lookup main 2>/dev/null; /sbin/ip rule add pref 5260 to $ROUTE_OVERRIDE_SUBNET lookup main'
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable --now tailscale-local-route.service
+    log "Persisted local route override service (tailscale-local-route.service)"
 }
 
 show_help() {
@@ -480,6 +544,8 @@ EOF
     else
         warn "SOCKS5 proxy may not be running"
     fi
+
+    ensure_local_route_override
 }
 
 # ============================================================================

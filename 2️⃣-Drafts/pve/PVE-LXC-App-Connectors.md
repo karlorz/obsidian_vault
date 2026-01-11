@@ -7,14 +7,14 @@ Enable Proxmox LXC containers to use **Tailscale App Connectors** without instal
 ```mermaid
 flowchart LR
     LXC["LXC Container"] -->|"All TCP"| RS["Redsocks\n(iptables redirect)"]
-    RS --> Proxy["SOCKS5 Proxy\n10.10.0.9:1055"]
+    RS --> Proxy["SOCKS5 Proxy\n10.10.9.9:1055"]
     Proxy --> TS["Tailscale\n(PVE Host)"]
     TS --> AC["App Connector"]
     AC --> Internet["Internet\n(Exit IP)"]
 ```
 
 **Solution**: 
-1. PVE Host runs Tailscale with SOCKS5 proxy on `10.10.0.9:1055`
+1. PVE Host runs Tailscale with SOCKS5 proxy on `10.10.9.9:1055`
 2. LXC containers run **redsocks** to transparently redirect ALL TCP traffic
 3. Traffic exits through your configured App Connector
 
