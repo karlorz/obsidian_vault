@@ -147,10 +147,14 @@ After=network.target
 
 [Service]
 Type=forking
+# Apply iptables rules before starting
 ExecStartPre=/usr/local/bin/redsocks-fw.sh
 ExecStart=/usr/sbin/redsocks -c /etc/redsocks.conf
+# Ensure rules are cleaned up on stop
 ExecStopPost=/sbin/iptables -t nat -F REDSOCKS
+ExecStopPost=/sbin/iptables -t nat -D OUTPUT -p tcp -j REDSOCKS 2>/dev/null || true
 Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
