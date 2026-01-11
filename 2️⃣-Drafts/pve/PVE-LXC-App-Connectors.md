@@ -7,12 +7,22 @@ This guide explains how to allow **all** your Proxmox LXC containers to use **Ta
 1.  **Traffic**: PVE Host routes LXC traffic into the Tailnet (Subnet Router).
 2.  **Resolution (The Key)**: App Connectors work by DNS hijacking (returning `100.x.y.z` IPs). LXCs must use a DNS server that "sees" these mappings. We will configure the PVE Host to forward DNS queries from LXCs to Tailscale.
 
+### How it works for default LXCs (vmbr0)
+Your default LXCs live on `vmbr0` (the 10.10.0.0/16 network). They are "next to" the PVE host.
+1.  **DNS Query**: LXC asks PVE Host (`10.10.0.9`) "Where is target.com?".
+2.  **PVE Response**: PVE (running our modified dnsmasq) asks Tailscale, which replies "It's at 100.x.y.z" (Magic IP).
+3.  **Traffic Flow**: LXC sends traffic to `100.x.y.z`.
+4.  **Routing**:
+    *   **IF** LXC Gateway is PVE (`10.10.0.9`): PVE immediately routes it into the Tailscale tunnel. **(Recommended)**
+    *   **IF** LXC Gateway is Router (`10.10.0.1`): Router sends it BACK to PVE (requires Static Route on Router).
+
 ---
 
 ## Part 1: Prerequisites
 1.  **Proxmox Host** is part of your Tailnet.
 2.  **App Connectors** are already configured in your Tailscale Admin Console (e.g., `github.com` routed via `node-us-east`).
-3.  You know your internal network subnet (e.g., `192.168.1.0/24`) and PVE Host IP (e.g., `192.168.1.5`).
+3.  **Verified** internal network subnet: `10.10.0.0/16` and PVE Host IP: `10.10.0.9`.
+4.  **Verified** `dnsmasq` is installed and running on the host (serving `vmbr1`). We will extend it to serve `vmbr0`.
 
 ---
 
@@ -27,14 +37,14 @@ This guide explains how to allow **all** your Proxmox LXC containers to use **Ta
     ```
 
 2.  **Advertise Routes**:
-    Replace `192.168.1.0/24` with your actual subnet.
+    Replace `10.10.0.0/16` with your actual subnet.
     ```bash
-    tailscale up --advertise-routes=192.168.1.0/24 --accept-dns=true
+    tailscale up --advertise-routes=10.10.0.0/16 --accept-dns=true
     ```
     *`--accept-dns=true` ensures the Host itself uses MagicDNS.*
 
 3.  **Approve Route** in Tailscale Admin Console:
-    -   Machines -> Your PVE Host -> Edit Route Settings -> Enable the subnet.
+    -   Machines -> Your PVE Host -> Edit Route Settings -> Enable the subnet (`10.10.0.0/16`).
 
 ---
 
@@ -46,17 +56,12 @@ All LXCs need to use Tailscale's DNS (100.100.100.100) to "see" the App Connecto
     apt update && apt install dnsmasq -y
     ```
 
-2.  **Configure dnsmasq**:
-    Create/Edit `/etc/dnsmasq.d/01-tailscale.conf`:
+4.  **Configure dnsmasq**:
+    Create/Edit `/etc/dnsmasq.d/01-tailscale.conf`.
+    *Critically, we add `interface=vmbr0` so dnsmasq listens on your main network.*
     ```ini
-    # Listen on the bridge interface (LAN)
+    # Listen on vmbr0 so standard LXCs can query 10.10.0.9
     interface=vmbr0
-    
-    # Or explicitly bind to the Host LAN IP (safer if multiple NICs)
-    # listen-address=127.0.0.1,192.168.1.5
-    
-    # Don't bind to wildcards (prevents conflict with systemd-resolved if active)
-    bind-interfaces
     
     # Forward EVERYTHING to Tailscale's MagicDNS
     # This ensures App Connectors AND MagicDNS hostnames work for configured LXCs
@@ -70,29 +75,33 @@ All LXCs need to use Tailscale's DNS (100.100.100.100) to "see" the App Connecto
 3.  **Restart dnsmasq**:
     ```bash
     systemctl restart dnsmasq
-    systemctl enable dnsmasq
     ```
-    *Check status with `systemctl status dnsmasq` to ensure it successfully bound to port 53.*
+    *Check status with `systemctl status dnsmasq`.*
+    *Note: This will also make `vmbr1` (existing NAT network) use Tailscale DNS, which is generally fine.*
 
 ---
 
-## Part 4: Configure LXC Containers
-Now tell your LXCs to use the PVE Host as their Gateway and DNS Server.
+## Part 4: Configure LXC Containers (vmbr0)
+You must change the network settings for **each** LXC you want to use App Connectors.
 
-### Method A: Per-Container (Static)
+### The "Golden" Configuration (Recommended)
+This guarantees traffic works without modifying your main router.
+
 1.  **Shutdown** the LXC.
 2.  Go to **Resources -> Network**.
-    -   **Gateway**: Should already be your router (e.g., `192.168.1.1`).
-        -   *Note*: If your router has a static route to the PVE Host for `100.64.0.0/10` (Tailscale range), this is fine.
-        -   *Easier *: Set Gateway to PVE Host IP (e.g. `192.168.1.5`) if you want PVE to route *everything*.
-        -   *Standard Setup*: Keep gateway as Router, but Router *must* know how to reach `100.x` IPs via PVE.
-            -   **Simpler Alternative**: Just set LXC Gateway to `192.168.1.5` (PVE Host). This ensures traffic meant for App Connectors (which resolve to 100.x IPs) goes to the PVE Host.
-    -   **DNS**: Set to PVE Host IP (e.g., `192.168.1.5`).
+    -   **Bridge**: `vmbr0` (Default)
+    -   **IPv4/CIDR**: `10.10.0.x/16` (Your static IP) or DHCP
+    -   **Gateway (IPv4)**: `10.10.0.9` (Set to PVE Host IP!)
+        *   *Why?* This forces traffic meant for Tailscale IPs to go directly to the PVE Host, which knows how to route them.
+    -   **DNS Server**: `10.10.0.9` (Set to PVE Host IP!)
+        *   *Why?* This ensures the LXC can resolve names like `code.corp` or `github.com` to Tailscale IPs.
 3.  **Start** the LXC.
 
-### Method B: DHCP (Router Config)
-If your LXCs use DHCP:
-1.  Configure your DHCP server (Router) to offer the PVE Host IP (`192.168.1.5`) as the **DNS Server** for these devices.
+### Alternative (If you keep Router Gateway)
+If you keep Gateway as `10.10.0.1` (Router), you **MUST** log into your Router (UniFi/Omada/etc) and add a Static Route:
+*   Destination: `100.64.0.0/10`
+*   Next Hop: `10.10.0.9` (PVE Host)
+*Without this, LXC sends traffic to Router, and Router drops it because it doesn't know where `100.x.x.x` is.*
 
 ---
 
