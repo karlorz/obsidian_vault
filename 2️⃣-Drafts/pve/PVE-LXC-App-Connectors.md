@@ -81,12 +81,68 @@ All LXCs need to use Tailscale's DNS (100.100.100.100) to "see" the App Connecto
 
 ---
 
-## Part 4: Configure LXC Containers (vmbr0)
-**Crucial Note on DHCP**: Since your home router (`10.10.0.1`) manages DHCP, **you cannot simply select "DHCP"** in the LXC settings.
+## Part 4: The "Resilient" Solution (Automated DHCP)
+You want to use **DHCP** (so LXC creation is easy/default) but still allow the LXC to route App Connectors correctly. We can achieve this using a **Hook Script**.
+
+This script runs automatically when the LXC starts. It lets the Router (`10.10.0.1`) assign the IP, but then injects the specific Routes and DNS needed for Tailscale.
+
+### 1. Create the Hook Script
+Run this on your PVE Host terminal:
+```bash
+mkdir -p /var/lib/vz/snippets
+
+cat << 'EOF' > /var/lib/vz/snippets/tailscale-hook.sh
+#!/bin/bash
+vmid="$1"
+phase="$2"
+
+if [[ "$phase" == "post-start" ]]; then
+    echo "[$vmid] Tailscale Hook: Configuring routes and DNS..."
+    
+    # Wait for network to be ready inside LXC
+    sleep 3
+    
+    # 1. Add Static Route for Tailscale Subnet (100.64.0.0/10 -> PVE Host 10.10.0.9)
+    # This prevents the traffic from going to the Router (10.10.0.1) which would drop it.
+    lxc-attach -n $vmid -- ip route add 100.64.0.0/10 via 10.10.0.9
+    
+    # 2. Force DNS to PVE Host (10.10.0.9)
+    # This ensures resolving 'github.com' returns the MagicDNS IP (100.x.y.z)
+    lxc-attach -n $vmid -- bash -c "echo 'nameserver 10.10.0.9' > /etc/resolv.conf"
+    
+    echo "[$vmid] Tailscale Hook: Done."
+fi
+EOF
+
+chmod +x /var/lib/vz/snippets/tailscale-hook.sh
+```
+
+### 2. Apply to an LXC
+When you create a new LXC (e.g., ID `105`) using standard DHCP settings:
+
+1.  Create the LXC as normal (Network: DHCP).
+2.  Run **one command** on the PVE Host to enable the magic:
+    ```bash
+    pct set 105 -hookscript local:snippets/tailscale-hook.sh
+    ```
+    *(Replace `105` with your LXC ID)*
+3.  Start the LXC.
+
+### Verify
+Inside the LXC (`pct enter 105`):
+-   `ip route`: Should show `100.64.0.0/10 via 10.10.0.9`.
+-   `cat /etc/resolv.conf`: Should show `nameserver 10.10.0.9`.
+-   `curl target-domain.com`: Should work via App Connector.
+
+---
+
+## Part 5: Manual Static IP (Legacy Method)
+*Use this ONLY if you don't want to use the script above.*
+**Crucial Note**: Since your home router (`10.10.0.1`) manages DHCP, **you cannot simply select "DHCP"** in the LXC settings.
 *   *Why?* DHCP will assign the Router (`10.10.0.1`) as the Gateway and DNS. This breaks App Connectors because the Router doesn't know how to resolve/route Tailscale traffic.
 *   **Solution**: You must use **Static IPv4** settings for these LXCs.
 
-### The "Golden" Configuration (Recommended)
+### Configuration Steps
 1.  **Shutdown** the LXC.
 2.  Go to **Resources -> Network**.
     -   **Bridge**: `vmbr0`
@@ -95,13 +151,6 @@ All LXCs need to use Tailscale's DNS (100.100.100.100) to "see" the App Connecto
     -   **Gateway (IPv4)**: `10.10.0.9` (**PVE Host IP** - Required).
     -   **DNS Server**: `10.10.0.9` (**PVE Host IP** - Required).
 3.  **Start** the LXC.
-
-### "I really want to use DHCP" Method
-If you absolutely must use DHCP (e.g., via Router reservation), it is much harder:
-1.  **Router Config**: You must add a **Static Route** on your UniFi/Omada router: `100.64.0.0/10` -> `10.10.0.9`.
-    *   *This fixes connectivity, but NOT DNS.*
-2.  **LXC DNS**: Since the Router gives its own IP for DNS, you must manually edit `/etc/resolv.conf` inside *every* LXC to point to `10.10.0.9` to resolve App Connector domains.
-    *   *Verdict*: Not recommended. Use Static IPv4 in Proxmox instead.
 
 ---
 
